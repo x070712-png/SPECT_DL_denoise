@@ -7,3 +7,4 @@ SPECT simulation → OSEM reconstruction → Deep learning denoising (3D U-Net).
 - `notebooks/`: demo notebooks (reproduce pipeline, training)
 - `scripts/`: HPC/Myriad job scripts
 - `outputs/`: generated outputs (ignored by git)
+- `tests`: minimal sanity checks for environment and dependencies
