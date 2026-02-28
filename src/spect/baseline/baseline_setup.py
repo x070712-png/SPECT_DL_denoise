@@ -20,11 +20,14 @@ import os
 import numpy as np
 
 # Notebook utilities used by SIRF exercises
-import notebook_setup  # noqa: F401
+try:
+    import notebook_setup  # noqa: F401
+except Exception:
+    notebook_setup = None
 
 import sirf.STIR as spect
-from sirf.Utilities import examples_data_path
-from sirf_exercises import exercises_working_path
+#from sirf.Utilities import examples_data_path
+#from sirf_exercises import exercises_working_path
 
 # Only used in notebooks for quick plotting
 try:
@@ -32,13 +35,6 @@ try:
 except Exception:
     show_2D_array = None
 
-
-def set_working_dir():
-    """Change into the SIRF exercises working directory for SPECT/OSEM."""
-    data_path = examples_data_path("SPECT")
-    workdir = exercises_working_path("SPECT", "OSEM")
-    os.chdir(workdir)
-    return data_path, workdir
 
 
 def enable_stir_logging(info="info.txt", warnings="warnings.txt", errors="errors.txt"):
@@ -96,9 +92,9 @@ def main():
     print("STIR version:", spect.get_STIR_version_string())
 
     # 1) Optionally move into exercises working dir (matches notebook behaviour)
-    data_path, workdir = set_working_dir()
-    print("examples_data_path('SPECT') =", data_path)
-    print("workdir =", workdir)
+    #data_path, workdir = set_working_dir()
+    #print("examples_data_path('SPECT') =", data_path)
+    #print("workdir =", workdir)
 
     # 2) Optional logging (creates info.txt/warnings.txt/errors.txt in workdir)
     _redir = enable_stir_logging()
