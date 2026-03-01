@@ -126,7 +126,7 @@ def _smoke_test():
     cfg = ReconConfig(num_subsets=21, num_subiters=42, init_value=1.0)
     recon = osem_reconstruct(
         clean,
-        acq_model=getattr(acq, "model", acq),   
+        acq_model=acq.model,   
         img_template=bundle.activity,
         config=cfg,
         use_cyl_fov=True,
