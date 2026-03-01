@@ -104,3 +104,40 @@ def image_stats(img: stir.ImageData) -> Dict[str, float]:
         "mean": float(arr.mean()),
         "std": float(arr.std()),
     }
+
+def _smoke_test():
+    from spect.baseline.phantom_umap import load_template_sinogram, make_phantom_and_umap
+    from spect.baseline.acquisition_model import build_ubmatrix_acq_model, forward_project
+
+    templ = load_template_sinogram()
+    bundle = make_phantom_and_umap(templ, zooms=(0.5, 1.0, 1.0), mu=0.12, use_cyl_fov=True)
+
+    acq = build_ubmatrix_acq_model(
+        templ_sino=templ,
+        umap=bundle.umap,
+        resol_slope=0.1,
+        resol_sigma0=0.1,
+
+        full_3d=False,
+    )
+
+    clean = forward_project(acq, bundle.activity, templ)
+    print("clean sino shape:", clean.as_array().shape)
+
+    cfg = ReconConfig(num_subsets=21, num_subiters=42, init_value=1.0)
+    recon = osem_reconstruct(
+        clean,
+        acq_model=getattr(acq, "model", acq),   
+        img_template=bundle.activity,
+        config=cfg,
+        use_cyl_fov=True,
+    )
+
+    s = image_stats(recon)
+    print("OK recon stats:", s)
+    assert s["max"] > 0 and s["mean"] > 0
+    print("SMOKE TEST PASSED")
+
+
+if __name__ == "__main__":
+    _smoke_test()
