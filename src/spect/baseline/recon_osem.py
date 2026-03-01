@@ -118,7 +118,6 @@ def _smoke_test():
         resol_slope=0.1,
         resol_sigma0=0.1,
 
-        full_3d=False,
     )
 
     clean = forward_project(acq, bundle.activity, templ)
