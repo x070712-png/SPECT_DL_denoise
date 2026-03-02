@@ -25,12 +25,14 @@ import sirf.STIR as stir
 class AcquisitionBundle:
     """
     Container for acquisition objects used later by reconstruction.
-
-    We keep a reference to the underlying matrix to allow reusing/modifying
-    resolution model etc. if needed.
     """
     acq_model: stir.AcquisitionModelUsingMatrix
     acq_matrix: stir.SPECTUBMatrix
+
+    @property
+    def model(self) -> stir.AcquisitionModelUsingMatrix:
+        """Alias for acq_model (so downstream code can use bundle.model)."""
+        return self.acq_model
 
 
 def build_ubmatrix_acq_model(
