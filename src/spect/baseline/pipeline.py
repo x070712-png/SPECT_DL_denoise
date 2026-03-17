@@ -20,6 +20,10 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
+import os
+import json
+from datetime import datetime
+
 import sirf.STIR as stir
 
 from .phantom_umap import load_template_sinogram, make_phantom_and_umap
@@ -146,6 +150,66 @@ def run_baseline(cfg: BaselineConfig) -> BaselineOutputs:
         recon_noisy_stats=recon_noisy_stats,
     )
 
+import json
+import os
+from datetime import datetime
+
+def _ensure_dir(p: str) -> None:
+    os.makedirs(p, exist_ok=True)
+
+def save_mini_dataset(
+    out_root: str,
+    cfg: BaselineConfig,
+    out: BaselineOutputs,
+    *,
+    phantom_id: str = "phantom000",
+    job_id: str | None = None,
+) -> str:
+    """
+    Save mini dataset to disk:
+      out_root/phantom000/
+        clean_sino
+        alphaX/noisy_sino
+        alphaX/recon
+        alphaX/meta.json
+    Returns the written base directory.
+    """
+    base_dir = os.path.join(out_root, phantom_id)
+    _ensure_dir(base_dir)
+
+    # 1) save a shared clean sinogram once
+    clean_path = os.path.join(base_dir, "clean_sino")
+    out.clean_sino.write(clean_path)
+
+    # 2) save recon_clean once (optional but useful)
+    recon_clean_path = os.path.join(base_dir, "recon_clean")
+    out.recon_clean.write(recon_clean_path)
+
+    # 3) per-alpha outputs
+    for a in sorted(out.noisy_sinos.keys()):
+        a_dir = os.path.join(base_dir, f"alpha{a}")
+        _ensure_dir(a_dir)
+
+        out.noisy_sinos[a].write(os.path.join(a_dir, "noisy_sino"))
+        out.recon_noisy[a].write(os.path.join(a_dir, "recon"))
+
+        meta = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "job_id": job_id,
+            "phantom_id": phantom_id,
+            "config": asdict(cfg),
+            "stats": {
+                "clean_sino": out.clean_sino_stats,
+                "noisy_sino": out.noisy_sino_stats[a],
+                "recon_clean": out.recon_clean_stats,
+                "recon_noisy": out.recon_noisy_stats[a],
+            },
+        }
+        with open(os.path.join(a_dir, "meta.json"), "w") as f:
+            json.dump(meta, f, indent=2, sort_keys=True)
+
+    print(f"[SAVED] mini dataset -> {base_dir}")
+    return base_dir
 
 def _print_summary(cfg: BaselineConfig, out: BaselineOutputs) -> None:
     print("=== BaselineConfig ===")
@@ -202,6 +266,8 @@ def _main():
     p.add_argument("--init", type=float, default=1.0)
     p.add_argument("--no-zoom", action="store_true", help="disable zooms=(0.5,1,1)")
     p.add_argument("--no-cyl", action="store_true", help="disable cylindrical FOV truncation")
+    p.add_argument("--outdir", type=str, default="", help="if set, save mini dataset outputs under this dir")
+    p.add_argument("--phantom-id", dest="phantom_id", type=str, default="phantom000")    
     args = p.parse_args()
 
     alphas = tuple(float(x.strip()) for x in args.alphas.split(",") if x.strip())
@@ -219,6 +285,10 @@ def _main():
 
     out = run_baseline(cfg)
     _print_summary(cfg, out)
+    
+    if args.outdir:
+        job_id = os.environ.get("JOB_ID") or os.environ.get("SGE_JOB_ID")
+        save_mini_dataset(args.outdir, cfg, out, phantom_id=args.phantom_id, job_id=job_id)
 
 
 if __name__ == "__main__":
