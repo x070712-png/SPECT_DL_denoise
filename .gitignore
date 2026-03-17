@@ -215,3 +215,5 @@ data/working_folder/
 *.pth
 __pycache__/
 .ipynb_checkpoints/
+
+logs/
