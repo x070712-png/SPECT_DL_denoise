@@ -162,12 +162,12 @@ def save_mini_dataset(
     cfg: BaselineConfig,
     out: BaselineOutputs,
     *,
-    phantom_id: str = "phantom000",
+    phantom_id: str = "run01",
     job_id: str | None = None,
 ) -> str:
     """
     Save mini dataset to disk:
-      out_root/phantom000/
+      out_root/run01/
         clean_sino
         alphaX/noisy_sino
         alphaX/recon
@@ -254,6 +254,7 @@ def _smoke_test() -> None:
 
 
 def _main():
+    stir.set_verbosity(0) # hide STIR info messages
     import argparse
 
     p = argparse.ArgumentParser()
@@ -267,7 +268,7 @@ def _main():
     p.add_argument("--no-zoom", action="store_true", help="disable zooms=(0.5,1,1)")
     p.add_argument("--no-cyl", action="store_true", help="disable cylindrical FOV truncation")
     p.add_argument("--outdir", type=str, default="", help="if set, save mini dataset outputs under this dir")
-    p.add_argument("--phantom-id", dest="phantom_id", type=str, default="phantom000")    
+    p.add_argument("--phantom-id", dest="phantom_id", type=str, default="run01")    
     args = p.parse_args()
 
     alphas = tuple(float(x.strip()) for x in args.alphas.split(",") if x.strip())
@@ -290,6 +291,10 @@ def _main():
         job_id = os.environ.get("JOB_ID") or os.environ.get("SGE_JOB_ID")
         save_mini_dataset(args.outdir, cfg, out, phantom_id=args.phantom_id, job_id=job_id)
 
+        # save figures alongside the dataset
+        from .visualization import save_all_figures
+        fig_dir = os.path.join(args.outdir, args.phantom_id, "figs")
+        save_all_figures(out, fig_dir)
 
 if __name__ == "__main__":
     # If you run as a script: python -m spect.baseline.pipeline
