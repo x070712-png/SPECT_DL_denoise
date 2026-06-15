@@ -30,19 +30,14 @@ def add_noise_alpha(
     """
     Add Poisson noise with a count-scaling factor alpha (WeiMiao-style).
 
-    Parameters
-    ----------
-    clean_proj_data:
-        Clean acquisition data (projection domain).
-    alpha:
-        Count scaling factor. Larger -> cleaner. Must be > 0.
-    seed:
-        RNG seed for reproducibility.
-    clip_negative:
+    Args:
+        clean_proj_data: Clean acquisition data (projection domain).
+        alpha: Count scaling factor. Larger -> cleaner. Must be > 0.
+        seed: RNG seed for reproducibility.
+        clip_negative:
         If True, clip negative values to 0 before Poisson (safety).
 
-    Returns
-    -------
+    Returns:
     noisy_proj_data:
         Noisy acquisition data (same metadata as input).
     """
@@ -93,19 +88,3 @@ def sinogram_stats(sino: stir.AcquisitionData) -> Dict[str, float]:
         "mean": float(arr.mean()),
         "std": float(arr.std()),
     }
-
-
-def smoke_test_noise(
-    clean_sino: stir.AcquisitionData,
-    alphas=(5.0, 1.0, 0.5, 0.05),
-    *,
-    seed: int = 0,
-) -> None:
-    """
-    Minimal smoke test: generate noisy sinos and print stats.
-    (No plotting; safe for compute nodes.)
-    """
-    print("clean stats:", sinogram_stats(clean_sino))
-    noisy = make_noisy_sinos(clean_sino, alphas, seed=seed)
-    for a in sorted(noisy.keys()):
-        print(f"alpha={a:g} stats:", sinogram_stats(noisy[a]))

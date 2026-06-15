@@ -11,10 +11,12 @@ Key idea:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import sirf.STIR as stir
+from sirf.Utilities import examples_data_path
 
 from .baseline_setup import create_sample_image, make_cylindrical_FOV
 
@@ -26,17 +28,26 @@ class PhantomBundle:
     activity: stir.ImageData          # phantom image (activity domain)
     umap: stir.ImageData              # attenuation map (mu-map)
 
+def load_template_sinogram(data_path: str | None = None,
+                           filename: str = "template_sinogram.hs") -> stir.AcquisitionData:
+    """
+    Load the template sinogram used as acquisition metadata template.
+    If data_path is None, use SIRF examples_data_path('SPECT').
+    """
+    if data_path is None:
+        data_path = examples_data_path("SPECT")
+    return stir.AcquisitionData(os.path.join(data_path, filename))
 
 def build_common_image_grid(
     templ_sino: stir.AcquisitionData,
-    zooms: Optional[Tuple[float, float, float]] = (0.5, 1.0, 1.0),
-) -> stir.ImageData:
+    zooms: Optional[Tuple[float, float, float]] = (0.5, 1.0, 1.0),) -> stir.ImageData:
     """
     Build a single common image grid derived from the acquisition template.
-
-    zooms:
-      - If None: no zoom.
-      - If tuple: apply zoom_image(zooms=...) once.
+    Args:
+        templ_sino: acquisition template (geometry/metadata).
+        zooms: optional zoom factors (x,y,z) to apply to the grid.
+    Returns:
+        ImageData object representing the common image grid.
     """
     img_grid = templ_sino.create_uniform_image()
     if zooms is not None:
@@ -84,16 +95,3 @@ def make_phantom_and_umap(
     activity = make_activity_image(img_grid, use_cyl_fov=use_cyl_fov)
     umap = make_uniform_umap(img_grid, mu=mu, use_cyl_fov=use_cyl_fov)
     return PhantomBundle(img_grid=img_grid, activity=activity, umap=umap)
-
-import os
-from sirf.Utilities import examples_data_path
-
-def load_template_sinogram(data_path: str | None = None,
-                           filename: str = "template_sinogram.hs") -> stir.AcquisitionData:
-    """
-    Load the template sinogram used as acquisition metadata template.
-    If data_path is None, use SIRF examples_data_path('SPECT').
-    """
-    if data_path is None:
-        data_path = examples_data_path("SPECT")
-    return stir.AcquisitionData(os.path.join(data_path, filename))

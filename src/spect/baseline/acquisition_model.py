@@ -15,9 +15,7 @@ Notes:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
-import numpy as np
 import sirf.STIR as stir
 
 
@@ -87,51 +85,3 @@ def forward_project(
     clean_sino = templ_sino.get_uniform_copy()
     bundle.acq_model.forward(activity, subset_num, num_subsets, clean_sino)
     return clean_sino
-
-
-def show_sino_slice(
-    sino: stir.AcquisitionData,
-    *,
-    view: int = 0,
-    seg: int = 0,
-    title: str = "Sinogram slice",
-):
-    """
-    Convenience viewer (works in notebooks). Safe to call even if show_2D_array not available.
-    """
-    try:
-        from sirf.STIR import show_2D_array
-    except Exception:
-        show_2D_array = None
-
-    arr = sino.as_array()
-    if show_2D_array is None:
-        print(f"{title}: array shape={arr.shape}, min={arr.min()}, max={arr.max()}, mean={arr.mean()}")
-        return
-
-    show_2D_array(title, arr[0, seg, view, :, :])  # (tof, seg, view, axial?, tangential?) depending on template
-
-
-def smoke_test_acq_and_project(
-    templ_sino: stir.AcquisitionData,
-    activity: stir.ImageData,
-    umap: stir.ImageData,
-    *,
-    resol_slope: float = 0.1,
-    resol_sigma0: float = 0.1,
-):
-    """
-    Minimal end-to-end sanity test:
-    - build model
-    - forward project
-    - print shapes/stats
-    """
-    bundle = build_ubmatrix_acq_model(
-        templ_sino, umap, resol_slope=resol_slope, resol_sigma0=resol_sigma0
-    )
-    clean = forward_project(bundle, activity, templ_sino)
-
-    arr = clean.as_array()
-    print("clean_sino shape:", arr.shape)
-    print("clean_sino stats: min=", float(arr.min()), "max=", float(arr.max()), "mean=", float(arr.mean()))
-    return bundle, clean

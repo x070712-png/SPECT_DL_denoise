@@ -1,16 +1,11 @@
 # src/spect/baseline/pipeline.py
 """
-End-to-end baseline pipeline (WeiMiao-style) for:
+End-to-end baseline mini-pipeline for:
 template_sino -> phantom+uMap -> acquisition model -> clean sino
 -> noisy sinos (alphas) -> OSEM recon (clean + noisy)
 
-This file is intentionally "scriptable":
-- can be imported as a library
-- can be run as: python -m spect.baseline.pipeline
+- can be run as: python3 -m spect.baseline.pipeline
 
-On Myriad (temporary, before packaging):
-  export PYTHONPATH=$PWD/src:$PYTHONPATH
-  python -m spect.baseline.pipeline --help
 """
 
 from __future__ import annotations
@@ -163,8 +158,7 @@ def save_mini_dataset(
     out: BaselineOutputs,
     *,
     phantom_id: str = "run01",
-    job_id: str | None = None,
-) -> str:
+    job_id: str | None = None,) -> str:
     """
     Save mini dataset to disk:
       out_root/run01/
@@ -179,7 +173,7 @@ def save_mini_dataset(
 
     # 1) save a shared clean sinogram once
     clean_path = os.path.join(base_dir, "clean_sino")
-    out.clean_sino.write(clean_path)
+    #out.clean_sino.write(clean_path)
 
     # 2) save recon_clean once (optional but useful)
     recon_clean_path = os.path.join(base_dir, "recon_clean")
@@ -190,8 +184,8 @@ def save_mini_dataset(
         a_dir = os.path.join(base_dir, f"alpha{a}")
         _ensure_dir(a_dir)
 
-        out.noisy_sinos[a].write(os.path.join(a_dir, "noisy_sino"))
-        out.recon_noisy[a].write(os.path.join(a_dir, "recon"))
+        #out.noisy_sinos[a].write(os.path.join(a_dir, "noisy_sino"))
+        #out.recon_noisy[a].write(os.path.join(a_dir, "recon"))
 
         meta = {
             "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -255,6 +249,8 @@ def _smoke_test() -> None:
 
 def _main():
     stir.set_verbosity(0) # hide STIR info messages
+    _redir = stir.MessageRedirector('info.txt', 'warnings.txt', 'errors.txt') # redirect STIR output to files
+    
     import argparse
 
     p = argparse.ArgumentParser()
