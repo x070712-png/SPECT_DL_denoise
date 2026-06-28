@@ -8,30 +8,22 @@ from __future__ import annotations
 import numpy as np
 import sirf.STIR as spect
 
+from .config import UMAP_CONFIG, ACQUISITION_CONFIG, OSEM_CONFIG
 
-TEMPLATE_SINO_PATH = "data/template/temp_sino.hs" 
+
+TEMPLATE_SINO_PATH = "data/template/temp_sino.hs"
 
 
 def load_template_sinogram(path: str | None = None) -> spect.AcquisitionData:
-    """
-    Load the template sinogram that defines acquisition geometry
-    (matrix size, num projections, pixel size, orbit radius, etc.)
-    If path is None, use TEMPLATE_SINO_PATH (which must be set).
-    """
+    """Load the template sinogram defining acquisition geometry."""
     path = path or TEMPLATE_SINO_PATH
     if path is None:
-        raise ValueError(
-            "No template sinogram path set. "
-            "Fill in TEMPLATE_SINO_PATH once Cate sends the .hs/.s file."
-        )
+        raise ValueError("No template sinogram path set.")
     return spect.AcquisitionData(path)
 
 
 def build_image_from_template(templ_sino: spect.AcquisitionData) -> spect.ImageData:
-    """
-    Build an empty SIRF ImageData object whose dimensions match the
-    template sinogram (same logic as phantom_umap.py / Cate's notebook).
-    """
+    """Build an empty SIRF ImageData matching the template sinogram dimensions."""
     image = templ_sino.create_uniform_image()
     image = image.zoom_image(
         zooms=(0.5, 1.0, 1.0),
@@ -44,70 +36,103 @@ def build_image_from_template(templ_sino: spect.AcquisitionData) -> spect.ImageD
     return image
 
 
+def make_uniform_umap(templ_sino: spect.AcquisitionData) -> spect.ImageData:
+    """Create a uniform attenuation map (mu = 0.12 cm^-1). """
+    umap = build_image_from_template(templ_sino)
+    umap.fill(UMAP_CONFIG["mu_cm_inv"])
+    return umap
+
+
+def make_acquisition_model(
+    templ_sino: spect.AcquisitionData,
+    image: spect.ImageData,
+    use_resolution_model: bool = True,
+):
+    """
+    Build the SPECT acquisition model with attenuation and
+    (optionally) collimator-detector response.
+
+    Args:
+        templ_sino: template sinogram defining geometry.
+        image: image template for set_up.
+        use_resolution_model: True for forward projection (simulation),
+            False for reconstruction (avoid inverse crime).
+    """
+    ubm = spect.SPECTUBMatrix()
+
+    # Attenuation
+    umap = make_uniform_umap(templ_sino)
+    ubm.set_attenuation_image(umap)
+
+    # Collimator-detector response (forward projection only)
+    if use_resolution_model:
+        ubm.set_resolution_model(
+            ACQUISITION_CONFIG["collimator_sigma"],
+            ACQUISITION_CONFIG["collimator_slope"],
+            full_3D=False,
+        )
+
+    acq_model = spect.AcquisitionModelUsingMatrix(ubm)
+    acq_model.set_up(templ_sino, image)
+    return acq_model
+
+
 def acquire_data(
     phantom_data: np.ndarray,
     templ_sino: spect.AcquisitionData,
-    scale_factor: float = 0.5,
+    alpha: float = 1.0,
 ) -> tuple[spect.AcquisitionData, spect.AcquisitionData]:
     """
-    Forward-project a phantom to obtain a clean and a noisy sinogram.
+    Forward-project a phantom to obtain clean and noisy sinograms.
+
+    Noise is applied in the sinogram domain (physically correct):
+        y_scaled = alpha * y_clean
+        y_noisy  = Poisson(y_scaled)
 
     Args:
-        phantom_data: numpy array (our ellipsoid phantom), must match
-            the dimensions derived from templ_sino.
-        templ_sino: template AcquisitionData defining the geometry.
-        scale_factor: controls Poisson noise level (mimics count level /
-            acquisition time). Equivalent to Wei Miao's alpha.
+        phantom_data: numpy array (our ellipsoid phantom).
+        templ_sino: template AcquisitionData defining geometry.
+        alpha: count level scaling factor (Wei Miao's alpha).
 
     Returns:
-        (true_sinogram, noisy_sinogram)
+        (clean_sinogram, noisy_sinogram)
     """
-    acq_model_matrix_sim = spect.SPECTUBMatrix()
-    acq_model_sim = spect.AcquisitionModelUsingMatrix(acq_model_matrix_sim)
-
     image = build_image_from_template(templ_sino)
+    acq_model = make_acquisition_model(templ_sino, image, use_resolution_model=True)
 
-    acq_model_sim.set_up(templ_sino, image)
-
-    # Fill the template image with our phantom data
+    # Fill template image with phantom data
     phantom = image.fill(phantom_data)
 
-    # Poisson noise, scaled
-    noisy_array = np.random.poisson(phantom.as_array() * scale_factor).astype("float64")
-    noisy_phantom = phantom.clone()
-    noisy_phantom = noisy_phantom.fill(noisy_array)
+    # Forward project to get clean sinogram
+    clean_sino = acq_model.forward(phantom)
 
-    true_sinogram = acq_model_sim.forward(phantom)
-    noisy_sinogram = acq_model_sim.forward(noisy_phantom)
+    # Apply Poisson noise in sinogram domain
+    scaled = clean_sino.as_array() * alpha
+    noisy_array = np.random.poisson(scaled).astype("float32")
+    noisy_sino = clean_sino.clone()
+    noisy_sino.fill(noisy_array)
 
-    return true_sinogram, noisy_sinogram
+    return clean_sino, noisy_sino
 
 
 def reconstruct_data(
     sinogram: spect.AcquisitionData,
     templ_sino: spect.AcquisitionData,
-    num_subsets: int = 2,
-    num_subiterations: int = 24,
 ) -> spect.ImageData:
     """
     OSEM reconstruction from a sinogram.
-
-    Uses a separate acquisition model (without resolution modelling)
-    to avoid 'inverse crime'.
+    No collimator model in reconstruction (avoid inverse crime).
     """
     image = build_image_from_template(templ_sino)
-
-    acq_model_matrix_recon = spect.SPECTUBMatrix()
-    acq_model_matrix_recon.set_keep_all_views_in_cache(True)
-    acq_model_recon = spect.AcquisitionModelUsingMatrix(acq_model_matrix_recon)
+    acq_model = make_acquisition_model(templ_sino, image, use_resolution_model=False)
 
     obj_fun = spect.make_Poisson_loglikelihood(sinogram)
-    obj_fun.set_acquisition_model(acq_model_recon)
+    obj_fun.set_acquisition_model(acq_model)
 
     recon = spect.OSMAPOSLReconstructor()
     recon.set_objective_function(obj_fun)
-    recon.set_num_subsets(num_subsets)
-    recon.set_num_subiterations(num_subiterations)
+    recon.set_num_subsets(OSEM_CONFIG["num_subsets"])
+    recon.set_num_subiterations(OSEM_CONFIG["num_subiterations"])
 
     init_image = image.get_uniform_copy(1)
     recon.set_current_estimate(init_image)
@@ -117,23 +142,23 @@ def reconstruct_data(
     return recon.get_output()
 
 
-# Quick smoke test
+# Quick test
 if __name__ == "__main__":
-    import os
     from .generate_ellipsoids import generate_phantom
 
-    if TEMPLATE_SINO_PATH is None:
-        print("⚠️  TEMPLATE_SINO_PATH not set yet — nothing to run.")
-        print("    Waiting on template sinogram file from Cate.")
-    else:
-        templ_sino = load_template_sinogram()
-        print("Template sinogram dimensions:", templ_sino.dimensions())
+    templ_sino = load_template_sinogram()
+    print("Template sinogram dimensions:", templ_sino.dimensions())
 
-        phantom = generate_phantom(seed=42)
-        print("Phantom shape:", phantom.shape, phantom.dtype)
+    phantom = generate_phantom(seed=42)
+    print("Phantom shape:", phantom.shape, phantom.dtype)
 
-        true_sino, noisy_sino = acquire_data(phantom, templ_sino, scale_factor=0.5)
-        print("Forward projection done.")
+    clean_sino, noisy_sino = acquire_data(phantom, templ_sino, alpha=1.0)
+    print("Forward projection done.")
+    print("Clean sinogram shape:", clean_sino.as_array().shape)
+    print("Noisy sinogram shape:", noisy_sino.as_array().shape)
 
-        recon = reconstruct_data(noisy_sino, templ_sino)
-        print("Reconstruction done. Output shape:", recon.as_array().shape)
+    label = reconstruct_data(clean_sino, templ_sino)
+    inp = reconstruct_data(noisy_sino, templ_sino)
+    print("Reconstruction done.")
+    print("Label shape:", label.as_array().shape)
+    print("Input shape:", inp.as_array().shape)

@@ -7,6 +7,7 @@ COUNT_LEVELS = [1.0, 0.5, 0.25, 0.125, 0.05]
 PHANTOM_CONFIG = {
     "num_volumes": 500,
     "volume_shape": (128, 128, 128),
+    "voxel_size_mm": 4.42,
 
     # background activity
     "bg_intensity_range": (0.1, 0.5),
@@ -19,12 +20,21 @@ PHANTOM_CONFIG = {
     # cylindrical mask / FOV
     "mask_radius_mm": 180,
 
-    # attenuation
-    "mu_cm_inv": 0.12,
 
-    # assumptions to confirm
-    "radii_independent_axes": True,
-    "allow_overlap": True,
+    "radii_independent_axes": True,  # true ellipsoids, not spheres
+    "allow_overlap": True,  # overlapping permitted
+}
+
+# Attenuation map
+UMAP_CONFIG = {
+    "mu_cm_inv": 0.12,         # uniform attenuation for water at 140 keV
+}
+
+# Acquisition / collimator parameters (from Wei Miao's Data128.ipynb)
+ACQUISITION_CONFIG = {
+    "collimator_sigma": 2.35598,     # used in forward projection only
+    "collimator_slope": 0.01771,     # used in forward projection only
+    "use_resolution_model_in_recon": False,  # inverse crime prevention
 }
 
 # Dataset split per count level
@@ -44,6 +54,6 @@ OUTPUT_FORMAT = {
 
 # OSEM parameters for reconstruction
 OSEM_CONFIG = {
-    "num_iterations": 2,
-    "num_subsets": 24,
+    "num_subsets": 2,
+    "num_subiterations": 24,
 }
