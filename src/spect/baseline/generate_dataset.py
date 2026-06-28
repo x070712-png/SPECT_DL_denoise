@@ -69,4 +69,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    import sirf.STIR as spect
+    spect.MessageRedirector(
+        f'logs/info_{sys.argv[1]}.txt',
+        f'logs/warnings_{sys.argv[1]}.txt',
+        f'logs/errors_{sys.argv[1]}.txt'
+    )
+
+    os.makedirs("logs", exist_ok=True)
+    templ_sino = load_template_sinogram(TEMPLATE_SINO_PATH)
+
+    phantom_idx = int(sys.argv[1])
+    print(f"Starting phantom {phantom_idx:04d}")
+    generate_pair(phantom_idx, templ_sino, OUT_DIR)
+    print(f"Phantom {phantom_idx:04d} complete.")
