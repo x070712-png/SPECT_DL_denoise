@@ -4,9 +4,9 @@ import os
 import numpy as np
 from pathlib import Path
 
-from .config import COUNT_LEVELS, OSEM_CONFIG
-from .generate_ellipsoids import generate_phantom
-from .sirf_bridge import (
+from src.spect.baseline.config import COUNT_LEVELS, OSEM_CONFIG
+from src.spect.baseline.generate_ellipsoids import generate_phantom
+from src.spect.baseline.sirf_bridge import (
     load_template_sinogram,
     acquire_data,
     reconstruct_data,
