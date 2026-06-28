@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#$ -l h_rt=2:00:00
+#$ -l h_rt=4:00:00
 #$ -l mem=8G
 #$ -l tmpfs=10G
 #$ -t 1-500
