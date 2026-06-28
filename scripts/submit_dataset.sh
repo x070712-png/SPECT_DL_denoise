@@ -24,5 +24,5 @@ export PYTHONPATH="$(pwd):${PYTHONPATH}"
 # Run single phantom (SGE_TASK_ID goes from 1 to 500, convert to 0-499)
 PHANTOM_IDX=$((SGE_TASK_ID - 1))
 echo "Starting phantom ${PHANTOM_IDX} at $(date)"
-python3 src/spect/baseline/generate_dataset.py ${PHANTOM_IDX}
+python3 -u src/spect/baseline/generate_dataset.py ${PHANTOM_IDX}
 echo "Finished phantom ${PHANTOM_IDX} at $(date)"
