@@ -6,8 +6,8 @@
 #$ -tc 50
 #$ -N spect_dataset
 #$ -wd /home/ucapiuw/SPECT_DL_denoise
-#$ -o /home/ucapiuw/SPECT_DL_denoise/logs/job_${JOB_ID}_${SGE_TASK_ID}.out
-#$ -e /home/ucapiuw/SPECT_DL_denoise/logs/job_${JOB_ID}_${SGE_TASK_ID}.err
+#$ -o /home/ucapiuw/SPECT_DL_denoise/logs/
+#$ -e /home/ucapiuw/SPECT_DL_denoise/logs/
 #$ -pe smp 1
 
 # Create logs directory
