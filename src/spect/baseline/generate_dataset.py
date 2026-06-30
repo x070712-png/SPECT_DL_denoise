@@ -71,16 +71,24 @@ def main():
 if __name__ == "__main__":
     import sys
     import sirf.STIR as spect
+
+    task_idx = int(sys.argv[1])  # 0-based task index
+    PHANTOMS_PER_TASK = 5
+    start = task_idx * PHANTOMS_PER_TASK
+    end = min(start + PHANTOMS_PER_TASK, NUM_PHANTOMS)
+
     spect.MessageRedirector(
-        f'logs/info_{sys.argv[1]}.txt',
-        f'logs/warnings_{sys.argv[1]}.txt',
-        f'logs/errors_{sys.argv[1]}.txt'
+        f'logs/info_{task_idx}.txt',
+        f'logs/warnings_{task_idx}.txt',
+        f'logs/errors_{task_idx}.txt'
     )
 
     os.makedirs("logs", exist_ok=True)
     templ_sino = load_template_sinogram(TEMPLATE_SINO_PATH)
 
-    phantom_idx = int(sys.argv[1])
-    print(f"Starting phantom {phantom_idx:04d}")
-    generate_pair(phantom_idx, templ_sino, OUT_DIR)
-    print(f"Phantom {phantom_idx:04d} complete.")
+    print(f"Starting task {task_idx}: phantoms {start} to {end-1}")
+    for phantom_idx in range(start, end):
+        print(f"--- Processing phantom {phantom_idx:04d} ---")
+        generate_pair(phantom_idx, templ_sino, OUT_DIR)
+
+    print(f"Task {task_idx} complete: phantoms {start}-{end-1}")
