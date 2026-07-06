@@ -78,17 +78,19 @@ for alpha_str, alpha_val in ALPHAS.items():
     print(f"  alpha={alpha_val}: mean={r.mean():.4f}, std={r.std():.4f}, error={abs(r.mean()-alpha_val):.4f}")
 
 fig, ax = plt.subplots(figsize=(8, 5))
-data = [ratios[a] for a in ALPHA_STRS]
-bp = ax.boxplot(data, labels=[str(v) for v in ALPHA_VALS], patch_artist=True,
+data = [np.array(ratios[a]) for a in ALPHA_STRS]
+positions = list(range(1, len(ALPHA_STRS) + 1))
+bp = ax.boxplot(data, positions=positions, patch_artist=True,
                 medianprops=dict(color='red', linewidth=2))
 for patch in bp['boxes']:
     patch.set_facecolor('steelblue')
     patch.set_alpha(0.7)
 ax.axhline(y=1.0, color='r', linestyle='--', alpha=0.3)
+ax.set_xticks(positions)
+ax.set_xticklabels([str(v) for v in ALPHA_VALS])
 ax.set_xlabel("Alpha level")
 ax.set_ylabel("Sum ratio (input/label)")
 ax.set_title("Sum Ratio Validation — 500 Phantoms")
-ax.set_ylim(0, 1.6)
 plt.tight_layout()
 plt.savefig("logs/validation_sum_ratio.png", dpi=150)
 plt.close()
