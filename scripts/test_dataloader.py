@@ -4,14 +4,14 @@ import sys
 sys.path.insert(0, '.')
 
 from torch.utils.data import DataLoader
-from src.spect.baseline.dataset import SPECTDataset, TRAIN_INDICES, VAL_INDICES, TEST_INDICES
+from src.spect.baseline.dataset import SPECTDataset
 
 DATA_DIR = "data/dataset"
 
 # Create datasets
-train_dataset = SPECTDataset(DATA_DIR, TRAIN_INDICES)
-val_dataset = SPECTDataset(DATA_DIR, VAL_INDICES)
-test_dataset = SPECTDataset(DATA_DIR, TEST_INDICES)
+train_dataset = SPECTDataset(DATA_DIR, 'train')
+val_dataset = SPECTDataset(DATA_DIR, 'val')
+test_dataset = SPECTDataset(DATA_DIR, 'test')
 
 print(f"Train: {len(train_dataset)} samples")
 print(f"Val:   {len(val_dataset)} samples")
