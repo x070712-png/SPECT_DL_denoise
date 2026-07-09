@@ -57,3 +57,39 @@ OSEM_CONFIG = {
     "num_subsets": 2,
     "num_subiterations": 24,
 }
+
+# Data augmentation (train split only, disabled for val/test) — core/transforms.py
+AUGMENTATION_CONFIG = {
+    "rand_flip": {"spatial_axis": [0], "prob": 0.5},
+    "rand_rotate90": {"spatial_axes": [1, 2], "max_k": 3, "prob": 0.5},
+    "rand_3d_elastic": {"sigma_range": (3, 5), "magnitude_range": (3, 5), "prob": 0.2},
+}
+
+# 3D U-Net pre-training hyperparameters — Table 2.8
+TRAINING_CONFIG = {
+    "batch_size": 4,
+    "num_epochs": 150,
+    "early_stop_patience": 6,
+    "optimizer": "AdamW",
+    "lr": 1e-4,
+    "weight_decay": 1e-5,
+    "lr_scheduler": {
+        "type": "ReduceLROnPlateau",
+        "factor": 0.5,
+        "patience": 3,
+        "min_lr": 1e-6,
+    },
+    "seed": 42,
+}
+
+# Loss — 0.5*MSE + 0.5*SSIM; note training SSIM window differs from the
+# evaluation-metric window (thesis text says 7 for both, but the actual
+# training code core/metrics.py uses 5 for the loss to avoid checkerboard
+# artefacts at low counts; 7 is reserved for the reported SSIM metric).
+LOSS_CONFIG = {
+    "mse_weight": 0.5,
+    "ssim_weight": 0.5,
+    "ssim_win_size_train": 5,
+    "ssim_win_size_eval": 7,
+    "ssim_data_range": 1.0,
+}
