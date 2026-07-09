@@ -66,7 +66,7 @@ AUGMENTATION_CONFIG = {
 }
 
 # 3D U-Net pre-training hyperparameters — Table 2.8
-TRAINING_CONFIG = {
+UNET_TRAINING_CONFIG = {
     "batch_size": 4,
     "num_epochs": 150,
     "early_stop_patience": 6,
@@ -82,10 +82,9 @@ TRAINING_CONFIG = {
     "seed": 42,
 }
 
-# Loss — 0.5*MSE + 0.5*SSIM; note training SSIM window differs from the
-# evaluation-metric window (thesis text says 7 for both, but the actual
-# training code core/metrics.py uses 5 for the loss to avoid checkerboard
-# artefacts at low counts; 7 is reserved for the reported SSIM metric).
+# Loss — 0.5*MSE + 0.5*SSIM;
+# window=5 for the training loss (avoids checkerboard artefactsat low counts)
+# window=7 only for the reported SSIM metric.
 LOSS_CONFIG = {
     "mse_weight": 0.5,
     "ssim_weight": 0.5,
