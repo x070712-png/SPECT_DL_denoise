@@ -74,11 +74,25 @@ class SPECTDataset(Dataset):
         self.pairs = build_split(split)
         self.samples = []
  
+        skipped = []
         for phantom_idx, alpha_str in self.pairs:
             inp_path = self.data_dir / f"alpha_{alpha_str}" / f"input_{phantom_idx:04d}.npy"
             lbl_path = self.data_dir / f"alpha_{alpha_str}" / f"label_{phantom_idx:04d}.npy"
-            if inp_path.exists() and lbl_path.exists():
-                self.samples.append((inp_path, lbl_path))
+
+            if not (inp_path.exists() and lbl_path.exists()):
+                skipped.append((phantom_idx, alpha_str, "missing"))
+                continue
+
+            if inp_path.stat().st_size < 1_000_000 or lbl_path.stat().st_size < 1_000_000:
+                skipped.append((phantom_idx, alpha_str, "truncated/empty"))
+                continue
+
+            self.samples.append((inp_path, lbl_path))
+
+        if skipped:
+            print(f"[{split}] WARNING: skipped {len(skipped)} corrupted/missing sample(s):")
+            for phantom_idx, alpha_str, reason in skipped:
+                print(f"    phantom {phantom_idx:04d} (alpha_{alpha_str}): {reason}")
  
         # Augmentation only for train; val/test stay exactly as before
         self.transform = build_train_augmentation() if split == "train" else None

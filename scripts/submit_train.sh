@@ -57,6 +57,7 @@ python3 scripts/train_unet.py \
     --epochs 150 \
     --patience 6 \
     --batch_size 4 \
-    --lr 1e-4
+    --lr 1e-4\
+    --num_workers 1
 
 echo "Job finished at $(date)"
