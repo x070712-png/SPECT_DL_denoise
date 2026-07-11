@@ -46,6 +46,8 @@ module load pytorch/2.1.0/gpu
 
 export PYTHONPATH=src:$PYTHONPATH
 
+export PYTHONUNBUFFERED=1
+
 # Sanity check that CUDA is visible before committing to a long run.
 python3 -c "import torch; print('torch', torch.__version__, 'cuda available:', torch.cuda.is_available())"
 
