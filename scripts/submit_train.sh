@@ -39,13 +39,12 @@ nvidia-smi
 
 cd /home/ucapiuw/SPECT_DL_denoise
 
-# spect package lives under src/ and isn't pip-installed — same fix needed
-# here as for the manual terminal test.
-export PYTHONPATH=src
-
 # ---- load modules (as you've been using for the CPU jobs, GPU variant) ----
 module unload gcc-libs
 module load pytorch/2.1.0/gpu
+
+
+export PYTHONPATH=src:$PYTHONPATH
 
 # Sanity check that CUDA is visible before committing to a long run.
 python3 -c "import torch; print('torch', torch.__version__, 'cuda available:', torch.cuda.is_available())"

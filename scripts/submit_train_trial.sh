@@ -26,10 +26,10 @@ nvidia-smi
 
 cd /home/ucapiuw/SPECT_DL_denoise
 
-export PYTHONPATH=src
-
 module unload gcc-libs
 module load pytorch/2.1.0/gpu
+
+export PYTHONPATH=src:$PYTHONPATH
 
 python3 -c "import torch; print('torch', torch.__version__, 'cuda available:', torch.cuda.is_available())"
 
