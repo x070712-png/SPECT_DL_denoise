@@ -30,6 +30,7 @@ module unload gcc-libs
 module load pytorch/2.1.0/gpu
 
 export PYTHONPATH=src:$PYTHONPATH
+export PYTHONUNBUFFERED=1
 
 python3 -c "import torch; print('torch', torch.__version__, 'cuda available:', torch.cuda.is_available())"
 
