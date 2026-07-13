@@ -118,13 +118,14 @@ def acquire_data(
 def reconstruct_data(
     sinogram: spect.AcquisitionData,
     templ_sino: spect.AcquisitionData,
+    use_resolution_model_recon: bool = False,
 ) -> spect.ImageData:
     """
     OSEM reconstruction from a sinogram.
     No collimator model in reconstruction (avoid inverse crime).
     """
     image = build_image_from_template(templ_sino)
-    acq_model = make_acquisition_model(templ_sino, image, use_resolution_model=False)
+    acq_model = make_acquisition_model(templ_sino, image, use_resolution_model=use_resolution_model_recon)
 
     obj_fun = spect.make_Poisson_loglikelihood(sinogram)
     obj_fun.set_acquisition_model(acq_model)
