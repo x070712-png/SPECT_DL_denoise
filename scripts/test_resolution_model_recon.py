@@ -15,10 +15,12 @@ loss itself.
 Cheap, single-phantom test -- no GPU, no training, just one extra
 reconstruction of an already-generated sinogram.
 
-Run on the login node, in whatever environment generate_dataset.py needs
-(SIRF/STIR module -- fill in the actual module load command you use):
+Run on the login node, same SIRF environment used to originally generate
+data/dataset (see the array-job script that runs generate_dataset.py):
 
-    module load <your SIRF/STIR module>
+    cd ~/SPECT_DL_denoise
+    source ~/scripts/sirf_build/sirf_requirements.sh
+    source ~/devel/SIRF/build/INSTALL/bin/env_sirf.sh
     export PYTHONPATH=src:$PYTHONPATH
     python3 scripts/test_resolution_model_recon.py --phantom_idx 0
 """
