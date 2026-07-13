@@ -27,7 +27,7 @@ def cylindrical_mask(shape, radius_mm, pixel_size_mm):
     return np.broadcast_to(mask2d[None, :, :], shape)
 
 
-def add_random_ellipsoid(volume, mask, rng, cfg):
+def add_random_ellipsoid(volume, mask, rng, cfg, params_list=None):
     D, H, W = volume.shape
 
     rx, ry, rz = rng.uniform(*cfg["radius_range"], size=3)
@@ -60,26 +60,40 @@ def add_random_ellipsoid(volume, mask, rng, cfg):
     region = volume[z0:z1, y0:y1, x0:x1]
     region[inside] += intensity
 
+    if params_list is not None:
+        # NOTE: no rng calls here — purely recording what was already drawn.
+        params_list.append({
+            "center_zyx": (float(cz), float(cy), float(cx)),
+            "radii_zyx": (float(rz), float(ry), float(rx)),
+            "intensity": float(intensity),
+            "bbox_zyx": ((z0, z1), (y0, y1), (x0, x1)),
+        })
 
-def generate_phantom(seed=42, cfg=CONFIG):
+
+def generate_phantom(seed=42, cfg=CONFIG, return_params=False):
     rng = np.random.default_rng(seed)
-
+ 
     mask = cylindrical_mask(
         cfg["shape"],
         cfg["mask_radius_mm"],
         cfg["pixel_size_mm"],
     )
-
+ 
     bg = rng.uniform(*cfg["bg_range"])
     volume = np.zeros(cfg["shape"], dtype=np.float32)
     volume[mask] = bg
-
+ 
     n = rng.poisson(cfg["n_ellipsoids_mean"])
     print(f"n_ellipsoids = {n}")
+ 
+    params_list = [] if return_params else None
     for _ in range(n):
-        add_random_ellipsoid(volume, mask, rng, cfg)
-
+        add_random_ellipsoid(volume, mask, rng, cfg, params_list=params_list)
+ 
     volume[~mask] = 0
+ 
+    if return_params:
+        return volume, {"background": float(bg), "ellipsoids": params_list}
     return volume
 
 
