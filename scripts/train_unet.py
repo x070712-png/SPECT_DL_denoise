@@ -90,21 +90,34 @@ def main():
     # evaluation metric: window=7 (matches Wei Miao's reported SSIM numbers)
     ssim_metric_eval = SSIMLoss(spatial_dims=3, data_range=1.0, win_size=7, reduction="mean")
  
-    def per_volume_scale(gt, eps=1e-8):
-        """Peak (max) of the GROUND-TRUTH label per volume — used to bring
-        pred/label into a comparable [~0,1] range before computing the
-        combined MSE+SSIM loss, and to bring pred/label back into
-        count-domain afterwards. Matches Wei Miao's core/metrics.py
-        combined_loss(), which normalises by gt_cnt.amax() (see FIXED
-        note at the top of this file — this used to be the input's mean,
-        which was wrong)."""
-        b = gt.shape[0]
-        return gt.view(b, -1).amax(dim=1).clamp(min=eps).view(b, 1, 1, 1, 1)
+    def mean_volume_scale(inp, eps=1e-8):
+        """Stage 1 of Wei Miao's normalisation (core/transforms.py
+        SaveMeand): per-volume MEAN of the NOISY INPUT -- not the label's
+        peak. Both input and label get divided by this same scale before
+        the network sees them (DivideByScaled), and it's saved so
+        predictions/labels can be brought back to count-domain afterwards
+        for computing count-domain metrics (MSE_cnt, PSNR, eval SSIM)."""
+        b = inp.shape[0]
+        return inp.view(b, -1).mean(dim=1).clamp(min=eps).view(b, 1, 1, 1, 1)
  
-    def combined_loss(pred_norm, gt_norm, alpha=0.5):
-        return alpha * mse_loss(pred_norm, gt_norm) + (1 - alpha) * ssim_loss_train(pred_norm, gt_norm)
+    def combined_loss(pred_cnt, gt_cnt, alpha=0.5, eps=1e-8):
+        """Matches core/metrics.py combined_loss() exactly: takes tensors
+        that are ALREADY mean-normalised (stage 1 applied), and does its
+        own internal peak normalisation (stage 2) here -- peak = per-volume
+        max of gt_cnt, freshly computed on the mean-normalised label -- before
+        computing 0.5*MSE + 0.5*SSIM(win=5)."""
+        peak = gt_cnt.view(gt_cnt.size(0), -1).amax(dim=1).clamp(min=eps).view(-1, 1, 1, 1, 1)
+        pred_norm = pred_cnt / peak
+        gt_norm = gt_cnt / peak
+        mse_part = mse_loss(pred_norm, gt_norm)
+        ssim_part = ssim_loss_train(pred_norm, gt_norm)
+        return alpha * mse_part + (1 - alpha) * ssim_part
  
     def compute_psnr(pred_cnt, tgt_cnt, eps=1e-8):
+        """Unchanged: operates on restored count-domain tensors, does its
+        own internal peak normalisation (matches compute_psnr_volume in
+        core/metrics.py) -- independent of which scale was used to get to
+        count-domain in the first place."""
         peak = tgt_cnt.amax(dim=tuple(range(1, tgt_cnt.dim()))).view(-1, 1, 1, 1, 1) + eps
         pred_n, tgt_n = pred_cnt / peak, tgt_cnt / peak
         mse = torch.mean((pred_n - tgt_n) ** 2, dim=list(range(1, tgt_n.dim())))
@@ -126,20 +139,23 @@ def main():
         for inp, lbl in tqdm(train_loader, desc=f"[Epoch {epoch:03d}] train"):
             inp, lbl = inp.to(device), lbl.to(device)
  
-            # --- per-volume scale: normalise by the LABEL's peak, matching
-            # Wei Miao's combined_loss() (see per_volume_scale docstring) ---
-            scale = per_volume_scale(lbl)
+            # --- stage 1: mean-normalise by the NOISY INPUT's own mean,
+            # matching Wei Miao's SaveMeand/DivideByScaled (see
+            # mean_volume_scale docstring). This is what the network sees. ---
+            scale = mean_volume_scale(inp)
             inp_n, lbl_n = inp / scale, lbl / scale
             # ----------------------------------------------------------
  
             optimizer.zero_grad()
             out_n = model(inp_n)
+            # stage 2 (internal peak renorm) happens inside combined_loss now
             loss = combined_loss(out_n, lbl_n)
             loss.backward()
             optimizer.step()
  
             running_loss += loss.item()
             with torch.no_grad():
+                # restore to true count-domain via the SAME mean scale used going in
                 out_cnt, lbl_cnt = out_n * scale, lbl_n * scale
                 running_mse += mse_loss(out_cnt, lbl_cnt).item()
  
@@ -153,7 +169,7 @@ def main():
         with torch.no_grad():
             for inp, lbl in tqdm(val_loader, desc=f"[Epoch {epoch:03d}] val"):
                 inp, lbl = inp.to(device), lbl.to(device)
-                scale = per_volume_scale(lbl)
+                scale = mean_volume_scale(inp)
                 inp_n, lbl_n = inp / scale, lbl / scale
  
                 out_n = model(inp_n)

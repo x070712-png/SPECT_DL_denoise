@@ -8,8 +8,10 @@ annotated. Same normalisation + metric definitions as train_unet.py, so the
 numbers you see here are directly comparable to the val_psnr/val_ssim
 printed during training.
 
-Run on the LOGIN NODE (no GPU needed):
-
+Run on a GPU node (submit as a job, not on the login node -- see the 16 Jul
+Myriad usage warning; model inference on 3D volumes is too heavy for
+login13):
+ 
     module unload gcc-libs
     module load pytorch/2.1.0/gpu
     export PYTHONPATH=src:$PYTHONPATH
@@ -43,14 +45,17 @@ def parse_args():
     p.add_argument("--split", type=str, default="val", choices=["train", "val", "test"])
     p.add_argument("--num_samples", type=int, default=4)
     p.add_argument("--slice_axis", type=int, default=0, help="0=axial, 1=coronal, 2=sagittal (over the D,H,W dims)")
+    p.add_argument("--vmax_headroom", type=float, default=1.2,
+                    help="multiply label's max by this factor for the shared colour scale (Kris, 7/15 meeting)")
     return p.parse_args()
  
  
-def per_volume_scale(gt, eps=1e-8):
-    # FIXED 12 Jul: matches train_unet.py — peak (max) of the ground-truth
-    # label, not the mean of the input. See train_unet.py's per_volume_scale
-    # docstring for why this matters.
-    return gt.max().clamp(min=eps)
+def mean_volume_scale(inp, eps=1e-8):
+    """Matches train_unet.py's mean_volume_scale (Wei Miao's SaveMeand):
+    per-volume MEAN of the NOISY INPUT -- not the label's peak. Only
+    depends on the input, so it's the same value you'd be able to compute
+    at real inference time (no label needed)."""
+    return inp.mean().clamp(min=eps)
  
  
 def compute_psnr(pred_cnt, tgt_cnt, eps=1e-8):
@@ -98,11 +103,15 @@ def main():
         inp, lbl = ds[i]  # (1, D, H, W) each, raw counts
         inp_b, lbl_b = inp.unsqueeze(0).to(device), lbl.unsqueeze(0).to(device)  # add batch dim
  
-        scale = per_volume_scale(lbl_b)
+        # stage 1: mean-normalise by the NOISY INPUT's own mean (matches
+        # train_unet.py / Wei Miao's SaveMeand+DivideByScaled) -- this is
+        # what the network was actually trained to see.
+        scale = mean_volume_scale(inp_b)
         inp_n, lbl_n = inp_b / scale, lbl_b / scale
  
         with torch.no_grad():
             out_n = model(inp_n)
+        # restore to true count-domain via the SAME mean scale used going in
         out_cnt, lbl_cnt, inp_cnt = out_n * scale, lbl_n * scale, inp_b
  
         psnr = compute_psnr(out_cnt, lbl_cnt)
@@ -118,8 +127,11 @@ def main():
         out_slice = central_slice(out_cnt.squeeze(0).squeeze(0).cpu(), args.slice_axis).numpy()
         lbl_slice = central_slice(lbl_cnt.squeeze(0).squeeze(0).cpu(), args.slice_axis).numpy()
  
-        # shared colour scale across the three panels so brightness is comparable
-        vmax = lbl_slice.max()
+        # shared colour scale across the three panels so brightness is
+        # comparable -- vmax has headroom above the label's max (Kris,
+        # 7/15 meeting) so bright voxels aren't pinned at the top of the
+        # range, which would hide whether the network is over/under-shooting.
+        vmax = lbl_slice.max() * args.vmax_headroom
  
         axes[i, 0].imshow(inp_slice, cmap="gray", vmin=0, vmax=vmax)
         axes[i, 0].set_title(f"Noisy input\nPSNR={psnr_noisy:.2f} SSIM={ssim_noisy:.3f}")
