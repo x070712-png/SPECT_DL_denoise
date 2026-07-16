@@ -1,7 +1,9 @@
 # src/spect/baseline/model.py
 
+#--------------------------------------------------------------------------
 # Copied verbatim from Wei Miao's original implementation:
 # 3D U-Net baseline: 4-level encoder (32->64->128->256), bottleneck (512), symmetric decoder with skip connections, 1x1x1 output conv.
+#--------------------------------------------------------------------------
 
 import torch
 import torch.nn as nn
@@ -82,3 +84,25 @@ class CustomUNet3D(nn.Module):
         d2 = self.up2(d3, e2)
         d1 = self.up1(d2, e1)
         return self.final(d1)
+
+
+
+# --------------------------------------------------------------------------
+# Swin UNETR baseline copied verbatim from Wei Miao's.
+# Uses MONAI's built-in SwinUNETR directly (no custom architecture). 
+# --------------------------------------------------------------------------
+def get_swin_unetr(device, roi_size=(128, 128, 128)):
+    """Build SwinUNETR model. See config.py SWIN_UNETR_MODEL_CONFIG for
+    the architecture parameters documented alongside the other configs."""
+    model = SwinUNETR(
+        img_size=roi_size,
+        in_channels=1,
+        out_channels=1,
+        feature_size=48,
+        use_checkpoint=True,
+        use_v2=True,
+    ).to(device)
+    return model
+ 
+
+
