@@ -1,3 +1,4 @@
+from matplotlib import scale
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -110,9 +111,13 @@ class SPECTDataset(Dataset):
         inp = torch.from_numpy(inp).unsqueeze(0)  # (1, D, H, W)
         lbl = torch.from_numpy(lbl).unsqueeze(0)
  
+        scale = inp.mean().clamp(min=1e-8)
+        inp = inp / scale
+        lbl = lbl / scale
+
         if self.transform is not None:
             data = {"input": inp, "label": lbl}
             data = self.transform(data)
             inp, lbl = data["input"], data["label"]
  
-        return inp, lbl
+        return inp, lbl, scale

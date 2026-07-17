@@ -90,15 +90,6 @@ def main():
     # evaluation metric: window=7 (matches Wei Miao's reported SSIM numbers)
     ssim_metric_eval = SSIMLoss(spatial_dims=3, data_range=1.0, win_size=7, reduction="mean")
  
-    def mean_volume_scale(inp, eps=1e-8):
-        """Stage 1 of Wei Miao's normalisation (core/transforms.py
-        SaveMeand): per-volume MEAN of the NOISY INPUT -- not the label's
-        peak. Both input and label get divided by this same scale before
-        the network sees them (DivideByScaled), and it's saved so
-        predictions/labels can be brought back to count-domain afterwards
-        for computing count-domain metrics (MSE_cnt, PSNR, eval SSIM)."""
-        b = inp.shape[0]
-        return inp.view(b, -1).mean(dim=1).clamp(min=eps).view(b, 1, 1, 1, 1)
  
     def combined_loss(pred_cnt, gt_cnt, alpha=0.5, eps=1e-8):
         """Matches core/metrics.py combined_loss() exactly: takes tensors
@@ -136,15 +127,11 @@ def main():
         # ---- train ----
         model.train()
         running_loss, running_mse = 0.0, 0.0
-        for inp, lbl in tqdm(train_loader, desc=f"[Epoch {epoch:03d}] train"):
-            inp, lbl = inp.to(device), lbl.to(device)
- 
-            # --- stage 1: mean-normalise by the NOISY INPUT's own mean,
-            # matching Wei Miao's SaveMeand/DivideByScaled (see
-            # mean_volume_scale docstring). This is what the network sees. ---
-            scale = mean_volume_scale(inp)
-            inp_n, lbl_n = inp / scale, lbl / scale
-            # ----------------------------------------------------------
+        for inp_n, lbl_n, scale in tqdm(train_loader, desc=f"[Epoch {epoch:03d}] train"):
+            
+            # stage 1: mean normalisation happens in SPECTDataset.__getitem__(), so inp_n/lbl_n are already mean-normalised
+            inp_n, lbl_n = inp_n.to(device), lbl_n.to(device)
+            scale = scale.to(device).view(-1, 1, 1, 1, 1) 
  
             optimizer.zero_grad()
             out_n = model(inp_n)
@@ -167,10 +154,9 @@ def main():
         running_val_loss, running_val_mse = 0.0, 0.0
         psnr_list, ssim_list = [], []
         with torch.no_grad():
-            for inp, lbl in tqdm(val_loader, desc=f"[Epoch {epoch:03d}] val"):
-                inp, lbl = inp.to(device), lbl.to(device)
-                scale = mean_volume_scale(inp)
-                inp_n, lbl_n = inp / scale, lbl / scale
+            for inp_n, lbl_n, scale in tqdm(val_loader, desc=f"[Epoch {epoch:03d}] val"):
+                inp_n, lbl_n = inp_n.to(device), lbl_n.to(device)
+                scale = scale.to(device).view(-1, 1, 1, 1, 1)
  
                 out_n = model(inp_n)
                 loss_v = combined_loss(out_n, lbl_n)

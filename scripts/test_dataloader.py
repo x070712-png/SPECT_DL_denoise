@@ -21,8 +21,9 @@ print(f"Test:  {len(test_dataset)} samples")
 train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True)
 
 # Load one batch and check shapes
-inp, lbl = next(iter(train_loader))
+inp, lbl, scale = next(iter(train_loader))
 print(f"\nBatch input shape: {inp.shape}")
 print(f"Batch label shape: {lbl.shape}")
+print(f"Batch scale shape: {scale.shape}")
 print(f"Input  min={inp.min():.4f}, max={inp.max():.4f}")
 print(f"Label  min={lbl.min():.4f}, max={lbl.max():.4f}")

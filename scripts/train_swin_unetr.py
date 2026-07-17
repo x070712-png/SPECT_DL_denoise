@@ -90,12 +90,6 @@ def main():
     ssim_metric_eval = SSIMLoss(spatial_dims=3, data_range=1.0, win_size=7, reduction="mean")
 
     # ---- SAME normalisation as train_unet.py -- his core/transforms.py
-    # (SaveMeand/DivideByScaled) and core/metrics.py (combined_loss's
-    # internal peak renorm) are shared between the U-Net and Swin UNETR
-    # experiments, so this is copied unchanged, not re-derived. ----
-    def mean_volume_scale(inp, eps=1e-8):
-        b = inp.shape[0]
-        return inp.view(b, -1).mean(dim=1).clamp(min=eps).view(b, 1, 1, 1, 1)
 
     def combined_loss(pred_cnt, gt_cnt, alpha=0.5, eps=1e-8):
         peak = gt_cnt.view(gt_cnt.size(0), -1).amax(dim=1).clamp(min=eps).view(-1, 1, 1, 1, 1)
@@ -124,11 +118,10 @@ def main():
         # ---- train ----
         model.train()
         running_loss, running_mse = 0.0, 0.0
-        for inp, lbl in tqdm(train_loader, desc=f"[Epoch {epoch:03d}] train"):
-            inp, lbl = inp.to(device), lbl.to(device)
 
-            scale = mean_volume_scale(inp)
-            inp_n, lbl_n = inp / scale, lbl / scale
+        for inp_n, lbl_n, scale in tqdm(train_loader, desc=f"[Epoch {epoch:03d}] train"):
+            inp_n, lbl_n = inp_n.to(device), lbl_n.to(device)
+            scale = scale.to(device).view(-1, 1, 1, 1, 1)
 
             optimizer.zero_grad()
             out_n = model(inp_n)
@@ -149,10 +142,9 @@ def main():
         running_val_loss, running_val_mse = 0.0, 0.0
         psnr_list, ssim_list = [], []
         with torch.no_grad():
-            for inp, lbl in tqdm(val_loader, desc=f"[Epoch {epoch:03d}] val"):
-                inp, lbl = inp.to(device), lbl.to(device)
-                scale = mean_volume_scale(inp)
-                inp_n, lbl_n = inp / scale, lbl / scale
+            for inp_n, lbl_n, scale in tqdm(val_loader, desc=f"[Epoch {epoch:03d}] val"):
+                inp_n, lbl_n = inp_n.to(device), lbl_n.to(device)
+                scale = scale.to(device).view(-1, 1, 1, 1, 1)
 
                 out_n = model(inp_n)
                 loss_v = combined_loss(out_n, lbl_n)

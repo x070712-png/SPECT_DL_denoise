@@ -50,13 +50,6 @@ def parse_args():
     return p.parse_args()
  
  
-def mean_volume_scale(inp, eps=1e-8):
-    """Matches train_unet.py's mean_volume_scale (Wei Miao's SaveMeand):
-    per-volume MEAN of the NOISY INPUT -- not the label's peak. Only
-    depends on the input, so it's the same value you'd be able to compute
-    at real inference time (no label needed)."""
-    return inp.mean().clamp(min=eps)
- 
  
 def compute_psnr(pred_cnt, tgt_cnt, eps=1e-8):
     peak = tgt_cnt.max() + eps
@@ -100,19 +93,15 @@ def main():
         axes = axes[None, :]
  
     for i in range(n):
-        inp, lbl = ds[i]  # (1, D, H, W) each, raw counts
-        inp_b, lbl_b = inp.unsqueeze(0).to(device), lbl.unsqueeze(0).to(device)  # add batch dim
+        inp_n, lbl_n, scale = ds[i]
+        inp_n, lbl_n = inp_n.unsqueeze(0).to(device), lbl_n.unsqueeze(0).to(device)
  
-        # stage 1: mean-normalise by the NOISY INPUT's own mean (matches
-        # train_unet.py / Wei Miao's SaveMeand+DivideByScaled) -- this is
-        # what the network was actually trained to see.
-        scale = mean_volume_scale(inp_b)
-        inp_n, lbl_n = inp_b / scale, lbl_b / scale
+        scale = scale.to(device).view(1, 1, 1, 1, 1)
  
         with torch.no_grad():
             out_n = model(inp_n)
         # restore to true count-domain via the SAME mean scale used going in
-        out_cnt, lbl_cnt, inp_cnt = out_n * scale, lbl_n * scale, inp_b
+        out_cnt, lbl_cnt, inp_cnt = out_n * scale, lbl_n * scale, inp_n * scale
  
         psnr = compute_psnr(out_cnt, lbl_cnt)
         peak = lbl_cnt.max() + 1e-8
@@ -127,10 +116,8 @@ def main():
         out_slice = central_slice(out_cnt.squeeze(0).squeeze(0).cpu(), args.slice_axis).numpy()
         lbl_slice = central_slice(lbl_cnt.squeeze(0).squeeze(0).cpu(), args.slice_axis).numpy()
  
-        # shared colour scale across the three panels so brightness is
-        # comparable -- vmax has headroom above the label's max (Kris,
-        # 7/15 meeting) so bright voxels aren't pinned at the top of the
-        # range, which would hide whether the network is over/under-shooting.
+        # shared colour scale across the three panels so brightness is comparable.
+        
         vmax = lbl_slice.max() * args.vmax_headroom
  
         axes[i, 0].imshow(inp_slice, cmap="gray", vmin=0, vmax=vmax)
