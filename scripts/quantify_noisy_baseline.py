@@ -26,12 +26,39 @@ import numpy as np
 from spect.baseline.dataset import build_split
 from spect.baseline.quantification import build_voi_masks
 
+
 def alpha_to_float(alpha_str):
     """Convert a folder-name-safe alpha string like '0p125' back to the
     float count-level (0.125). Reverses the 'p'-for-'.' encoding used
     throughout data/dataset's alpha_* folder names.
-"""
+    """
     return float(alpha_str.replace("p", "."))
+
+
+def compute_isolation_flags(per_voi):
+    """For each ellipsoid in a phantom, return whether its mask has zero
+    voxel overlap with every OTHER ellipsoid's mask in the same phantom.
+
+    Needed because generate_ellipsoids.py stacks overlapping ellipsoids'
+    intensities additively (region[inside] += intensity). A per-VOI RC
+    that divides by only that ellipsoid's own intensity ends up inflated
+    wherever its mask overlaps a neighbour, since the measured signal
+    there includes the neighbour's contribution too but the denominator
+    doesn't. This inflation hits small ellipsoids hardest (overlap is a
+    bigger fraction of a small volume), which can mask or even reverse
+    the true partial-volume-effect trend in the size-grouped RC summary.
+    Restricting that analysis to isolated (non-overlapping) ellipsoids
+    removes this confound -- see quantification.py's note on overlap
+    regions, and the 7/19 discussion of why per-VOI RC/alpha came out
+    >1 across the board."""
+    n = len(per_voi)
+    flags = [True] * n
+    for i in range(n):
+        for j in range(i + 1, n):
+            if np.any(per_voi[i]["mask"] & per_voi[j]["mask"]):
+                flags[i] = False
+                flags[j] = False
+    return flags
 
 
 def parse_args():
@@ -60,7 +87,7 @@ def main():
     pairs = build_split(args.split)  # [(phantom_idx, alpha_str), ...]
 
     rows = []
-    per_voi_rows = []
+    per_voi_rows = []  # flat list across all phantoms -- one row per ellipsoid
     for phantom_idx, alpha_str in pairs:
         inp_path = os.path.join(args.data_dir, f"alpha_{alpha_str}", f"input_{phantom_idx:04d}.npy")
         if not os.path.exists(inp_path):
@@ -71,6 +98,7 @@ def main():
 
         combined_mask, per_voi, background = build_voi_masks(phantom_idx, seed_base=args.seed_base)
         alpha_val = alpha_to_float(alpha_str)
+        isolation_flags = compute_isolation_flags(per_voi)
 
         # --- combined (all-VOI) recovery ---
         if combined_mask.sum() > 0:
@@ -113,6 +141,7 @@ def main():
                 "mean_rc": mean_rc,
                 "bias_pct": bias_pct,
                 "mean_rc_over_alpha": mean_rc_over_alpha,
+                "is_isolated": isolation_flags[i],
             }
             rows[-1].setdefault("per_voi", []).append(per_voi_entry)
 
@@ -147,6 +176,9 @@ def main():
             print(f"  alpha_{a}: mean RC = {np.mean(subset):.3f}  "
                   f"mean RC/alpha = {np.mean(subset_norm):.3f} (n={len(subset)})")
 
+    # RC/alpha should be roughly flat across alpha groups if the residual
+    # bias is purely count-level/noise-driven and not something else --
+    # print the overall spread so it's obvious at a glance whether it is.
     all_norm = [r["combined_mean_rc_over_alpha"] for r in rows if not np.isnan(r["combined_mean_rc_over_alpha"])]
     if all_norm:
         print(f"\nRC/alpha across all groups: mean={np.mean(all_norm):.3f}, "
@@ -157,7 +189,7 @@ def main():
     # ---- write the flat per-VOI CSV ----
     per_voi_fieldnames = ["phantom_idx", "alpha", "alpha_val", "voi_idx",
                            "mean_radius_vox", "n_voxels", "mean_rc",
-                           "bias_pct", "mean_rc_over_alpha"]
+                           "bias_pct", "mean_rc_over_alpha", "is_isolated"]
     with open(args.per_voi_csv, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=per_voi_fieldnames)
         writer.writeheader()
@@ -197,6 +229,33 @@ def main():
                     parts.append(f"bin{b}(n={len(in_bin)}) RC/alpha="
                                  f"{np.mean([r['mean_rc_over_alpha'] for r in in_bin]):.3f}")
             print(line + "  ".join(parts))
+
+        # ---- same size-binned summary, but restricted to ISOLATED
+        # ellipsoids only (no mask overlap with any neighbour in the same
+        # phantom) -- removes the additive-overlap inflation described in
+        # compute_isolation_flags() above, so this should give a cleaner
+        # read on the true partial-volume-effect trend. ----
+        isolated_rows = [r for r in per_voi_rows if r["is_isolated"]]
+        print(f"\n=== Same analysis, ISOLATED ellipsoids only (no overlap with "
+              f"any other ellipsoid in the same phantom) -- {len(isolated_rows)}/"
+              f"{len(per_voi_rows)} VOIs qualify ===")
+        if isolated_rows:
+            radii_iso = np.array([r["mean_radius_vox"] for r in isolated_rows])
+            edges_iso = np.quantile(radii_iso, np.linspace(0, 1, args.n_size_bins + 1))
+            edges_iso[-1] += 1e-6
+            for b in range(args.n_size_bins):
+                lo, hi = edges_iso[b], edges_iso[b + 1]
+                in_bin = [r for r in isolated_rows if lo <= r["mean_radius_vox"] < hi]
+                if not in_bin:
+                    continue
+                mean_rc_bin = np.mean([r["mean_rc"] for r in in_bin])
+                mean_rc_over_alpha_bin = np.mean([r["mean_rc_over_alpha"] for r in in_bin])
+                print(f"  radius [{lo:.1f}, {hi:.1f}) vox: n={len(in_bin):3d}  "
+                      f"mean RC={mean_rc_bin:.3f}  mean RC/alpha={mean_rc_over_alpha_bin:.3f}")
+        else:
+            print("  (no isolated ellipsoids in this split -- every VOI overlaps "
+                  "at least one neighbour; can't compute a clean PVE trend from "
+                  "this data without changing the phantom generation density)")
 
 
 if __name__ == "__main__":
