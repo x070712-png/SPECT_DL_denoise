@@ -26,6 +26,13 @@ import numpy as np
 from spect.baseline.dataset import build_split
 from spect.baseline.quantification import build_voi_masks
 
+def alpha_to_float(alpha_str):
+    """Convert a folder-name-safe alpha string like '0p125' back to the
+    float count-level (0.125). Reverses the 'p'-for-'.' encoding used
+    throughout data/dataset's alpha_* folder names.
+"""
+    return float(alpha_str.replace("p", "."))
+
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -63,8 +70,12 @@ def main():
             vals = noisy[combined_mask]
             combined_mean_rc = float(vals.mean()) / true_val_combined
             combined_bias_pct = (float(vals.mean()) - true_val_combined) / true_val_combined * 100.0
+            # remove the expected/known count-level scaling -- see
+            # alpha_to_float() docstring above for why this matters.
+            combined_mean_rc_over_alpha = combined_mean_rc / alpha_val
         else:
             combined_mean_rc, combined_bias_pct = float("nan"), float("nan")
+            combined_mean_rc_over_alpha = float("nan")
 
         rows.append({
             "phantom_idx": phantom_idx,
@@ -72,6 +83,7 @@ def main():
             "n_voi": len(per_voi),
             "combined_mean_rc": combined_mean_rc,
             "combined_bias_pct": combined_bias_pct,
+            "combined_mean_rc_over_alpha": combined_mean_rc_over_alpha,
         })
 
         # --- per-VOI recovery, so you can group by size later ---
@@ -86,6 +98,7 @@ def main():
                 "n_voxels": v["n_voxels"],
                 "mean_rc": mean_rc,
                 "bias_pct": bias_pct,
+                "mean_rc_over_alpha": mean_rc / alpha_val,
             })
 
         print(f"phantom {phantom_idx:04d} alpha_{alpha_str}: "
@@ -93,19 +106,29 @@ def main():
               f"({len(per_voi)} VOIs)")
 
     # ---- write a flat summary CSV (combined-level numbers) ----
+    fieldnames = ["phantom_idx", "alpha", "n_voi", "combined_mean_rc",
+                  "combined_bias_pct", "combined_mean_rc_over_alpha"]
     with open(args.out_csv, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["phantom_idx", "alpha", "n_voi", "combined_mean_rc", "combined_bias_pct"])
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for r in rows:
-            writer.writerow({k: r[k] for k in writer.fieldnames})
+            writer.writerow({k: r[k] for k in fieldnames})
 
     # ---- also print an overall summary, grouped by alpha ----
     print("\n=== Summary by alpha (noisy input, before denoising) ===")
     alphas = sorted(set(r["alpha"] for r in rows))
     for a in alphas:
         subset = [r["combined_mean_rc"] for r in rows if r["alpha"] == a and not np.isnan(r["combined_mean_rc"])]
+        subset_norm = [r["combined_mean_rc_over_alpha"] for r in rows
+                        if r["alpha"] == a and not np.isnan(r["combined_mean_rc_over_alpha"])]
         if subset:
-            print(f"  alpha_{a}: mean RC = {np.mean(subset):.3f} (n={len(subset)})")
+            print(f"  alpha_{a}: mean RC = {np.mean(subset):.3f}  "
+                  f"mean RC/alpha = {np.mean(subset_norm):.3f} (n={len(subset)})")
+
+    all_norm = [r["combined_mean_rc_over_alpha"] for r in rows if not np.isnan(r["combined_mean_rc_over_alpha"])]
+    if all_norm:
+        print(f"\nRC/alpha across all groups: mean={np.mean(all_norm):.3f}, "
+              f"std={np.std(all_norm):.3f}, min={np.min(all_norm):.3f}, max={np.max(all_norm):.3f}")
 
     print(f"\nSaved {len(rows)} rows to {args.out_csv}")
 
