@@ -59,7 +59,8 @@ def main():
         noisy = np.load(inp_path).astype(np.float32)
 
         combined_mask, per_voi, background = build_voi_masks(phantom_idx, seed_base=args.seed_base)
-
+        alpha_val = alpha_to_float(alpha_str)
+        
         # --- combined (all-VOI) recovery ---
         if combined_mask.sum() > 0:
             # true value for the combined mask: approximate as background +
