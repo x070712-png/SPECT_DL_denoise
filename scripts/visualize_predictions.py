@@ -124,8 +124,11 @@ def main():
         axes[i, 0].set_title(f"Noisy input\nPSNR={psnr_noisy:.2f} SSIM={ssim_noisy:.3f}")
         axes[i, 1].imshow(out_slice, cmap="gray", vmin=0, vmax=vmax)
         axes[i, 1].set_title(f"Model output\nPSNR={psnr:.2f} SSIM={ssim:.3f}")
-        axes[i, 2].imshow(lbl_slice, cmap="gray", vmin=0, vmax=vmax)
+        im = axes[i, 2].imshow(lbl_slice, cmap="gray", vmin=0, vmax=vmax)
         axes[i, 2].set_title("Ground truth (label)")
+
+        fig.colorbar(im, ax=axes[i, :].tolist(), fraction=0.025, pad=0.02,
+                     label="count-domain activity")
  
         for ax in axes[i]:
             ax.axis("off")
