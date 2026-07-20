@@ -153,7 +153,7 @@ def main():
         # (based on that row's own label peak), so a single figure-wide
         # colorbar would be misleading; this makes the shared 0..vmax scale
         # for THIS row explicit (Kris, 7/15 meeting).
-        fig.colorbar(im, ax=axes[i, :3].tolist(), fraction=0.025, pad=0.02,
+        fig.colorbar(im, ax=axes[i, 2], fraction=0.046, pad=0.04,
                      label="count-domain activity")
 
         # ---- panel 4: VOI mask overlay ----
