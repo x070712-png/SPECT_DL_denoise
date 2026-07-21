@@ -32,10 +32,12 @@ import numpy as np
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--data_dir", type=str, default="data/dataset")
-    p.add_argument("--split", type=str, default="train",
+    p.add_argument("--split", type=str, default="",
                     help="subfolder name if your dataset is split into train/val/test "
-                         "subdirectories; pass '' if labels live directly under "
-                         "data_dir/alpha_*/")
+                         "subdirectories on disk; leave as '' (default) if labels live "
+                         "directly under data_dir/alpha_*/, which is the case for this "
+                         "project -- SPECTDataset does the train/val/test split by index, "
+                         "not by physical subfolder")
     p.add_argument("--label_glob", type=str, default="label_*.npy",
                     help="filename pattern for label volumes (adjust if yours differs)")
     return p.parse_args()
