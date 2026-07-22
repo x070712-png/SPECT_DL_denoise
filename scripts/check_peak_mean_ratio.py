@@ -22,70 +22,79 @@ Usage:
 """
 
 import argparse
-import glob
 import os
-import re
-
+ 
 import numpy as np
-
-
+ 
+# Must match GROUP_TO_ALPHA in src/spect/baseline/dataset.py exactly.
+GROUP_TO_ALPHA = {
+    0: '1p0',   # phantom 0-99    -> alpha 1.0
+    1: '0p5',   # phantom 100-199 -> alpha 0.5
+    2: '0p25',  # phantom 200-299 -> alpha 0.25
+    3: '0p125', # phantom 300-399 -> alpha 0.125
+    4: '0p05',  # phantom 400-499 -> alpha 0.05
+}
+ 
+ 
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--data_dir", type=str, default="data/dataset")
-    p.add_argument("--split", type=str, default="",
-                    help="subfolder name if your dataset is split into train/val/test "
-                         "subdirectories on disk; leave as '' (default) if labels live "
-                         "directly under data_dir/alpha_*/, which is the case for this "
-                         "project -- SPECTDataset does the train/val/test split by index, "
-                         "not by physical subfolder")
-    p.add_argument("--label_glob", type=str, default="label_*.npy",
-                    help="filename pattern for label volumes (adjust if yours differs)")
+    p.add_argument("--label_prefix", type=str, default="label",
+                    help="filename prefix for label volumes, e.g. 'label' for "
+                         "label_0083.npy (adjust if yours differs)")
     return p.parse_args()
-
-
-def parse_alpha_from_path(path):
-    m = re.search(r"alpha_([0-9p]+)", str(path))
-    return m.group(1) if m else "unknown"
-
-
+ 
+ 
+def actual_used_paths(data_dir, label_prefix):
+    """Yield (path, alpha_str, phantom_idx) for exactly the 500 (phantom, alpha)
+    pairs SPECTDataset.build_split() would ever select across train+val+test
+    combined -- i.e. the real, disjoint, no-repeat set."""
+    for group, alpha_str in GROUP_TO_ALPHA.items():
+        base = group * 100
+        for i in range(100):
+            phantom_idx = base + i
+            path = os.path.join(data_dir, f"alpha_{alpha_str}", f"{label_prefix}_{phantom_idx:04d}.npy")
+            yield path, alpha_str, phantom_idx
+ 
+ 
 def main():
     args = parse_args()
-    search_root = os.path.join(args.data_dir, args.split) if args.split else args.data_dir
-    pattern = os.path.join(search_root, "**", args.label_glob)
-    paths = sorted(glob.glob(pattern, recursive=True))
-
-    if not paths:
-        print(f"No files matched {pattern} -- check --data_dir/--split/--label_glob.")
-        return
-
-    print(f"Found {len(paths)} label volumes under {search_root}\n")
-
+ 
     by_alpha = {}
     all_ratios = []
-
-    for path in paths:
+    missing = []
+ 
+    for path, alpha, phantom_idx in actual_used_paths(args.data_dir, args.label_prefix):
+        if not os.path.exists(path):
+            missing.append((phantom_idx, alpha))
+            continue
         vol = np.load(path)
         mean = vol.mean()
         peak = vol.max()
         if mean <= 1e-8:
             continue  # skip degenerate empty volumes
         ratio = peak / mean
-        alpha = parse_alpha_from_path(path)
         by_alpha.setdefault(alpha, []).append(ratio)
         all_ratios.append(ratio)
-
+ 
+    if missing:
+        print(f"WARNING: {len(missing)} expected (phantom, alpha) files were missing, e.g. {missing[:5]}\n")
+ 
+    print(f"Found {len(all_ratios)} label volumes actually used by SPECTDataset "
+          f"(disjoint, 100 per alpha, no repeats)\n")
+ 
     def report(name, ratios):
         ratios = np.array(ratios)
         print(f"{name:>12s}  n={len(ratios):4d}  "
               f"mean={ratios.mean():6.2f}  median={np.median(ratios):6.2f}  "
               f"std={ratios.std():6.2f}  min={ratios.min():6.2f}  max={ratios.max():6.2f}")
-
+ 
     print("Peak-to-mean ratio (peak/mean) per volume, by count level:\n")
     for alpha in sorted(by_alpha.keys()):
         report(f"alpha={alpha}", by_alpha[alpha])
     print()
     report("ALL", all_ratios)
-
+ 
     print(
         "\nHow to read this:\n"
         "  - If std is small relative to mean (say < ~20-30% of the mean) and max isn't\n"
@@ -99,7 +108,7 @@ def main():
         "    volumes have a different ratio distribution than high-alpha ones, that's worth\n"
         "    noting too, since it could interact with the per-alpha weighted loss."
     )
-
-
+ 
+ 
 if __name__ == "__main__":
     main()
