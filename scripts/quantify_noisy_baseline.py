@@ -68,29 +68,71 @@ def compute_isolation_flags(per_voi):
  
  
 def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
-                     input_prefix="input"):
+                     input_prefix="input", eps=1e-8):
     """Load one phantom's noisy input (or, with input_prefix="denoised",
     a model's restored count-domain output -- see run_inference_dump.py)
-    and compute both the combined-mask recovery stats and the per-VOI
-    (per-ellipsoid) recovery stats.
+    PLUS its label (label_{idx}.npy -- the noise-free reconstruction the
+    network was actually trained to reproduce), and compute recovery
+    stats against BOTH reference points.
  
-    input_prefix lets this same function -- and therefore the exact same
-    RC formula, masks, and CSV schema -- serve both the "before denoising"
-    baseline (input_prefix="input", reading data/dataset directly) and the
-    "after denoising" measurement (input_prefix="denoised", reading
-    wherever run_inference_dump.py wrote a checkpoint's output), so the
-    two are apples-to-apples comparable.
+    UPDATED 7/26 (Cate, 7/23 meeting): the network only ever sees
+    (noisy input, label) pairs during training -- it was never shown, and
+    never asked to correct for, the gap between the label and the raw
+    phantom ground truth (that gap is purely a property of the forward
+    projection + OSEM reconstruction step, e.g. resolution blur /
+    partial-volume effect). Scoring the network against ground truth
+    conflates that reconstruction-only bias with the network's own
+    denoising error, which is unfair to the network and doesn't isolate
+    either effect cleanly. So this now computes THREE things per VOI,
+    all using the exact same mask (see quantification.py -- the mask
+    itself is unchanged, only which array it's applied to is new):
+ 
+      true_val_gt    = background + intensity (phantom design value,
+                        exactly as before -- see quantification.py note)
+      true_val_label = label[mask].mean()  (NEW -- what the network was
+                        actually trained to reproduce)
+      recon_rc       = true_val_label / true_val_gt  (label vs ground
+                        truth -- pure reconstruction bias, nothing to do
+                        with noise or the CNN)
+      mean_rc        = measured[mask].mean() / true_val_label  (measured
+                        vs label -- "measured" is the noisy input when
+                        input_prefix="input", or the CNN output when
+                        input_prefix="denoised". THIS is the number that
+                        actually reflects what the network is being asked
+                        to do, and is comparable before/after the CNN)
+ 
+    Run this script twice -- once with input_prefix="input" and once with
+    input_prefix="denoised" (after run_inference_dump.py) -- and put
+    mean_rc from both runs alongside recon_rc in one table: that's Cate's
+    three-way comparison (label vs ground truth, reconstruction vs label,
+    CNN output vs label).
+ 
+    NOTE on alpha-normalisation: label_{idx}.npy lives inside the
+    alpha_{alpha_str} folder, i.e. it's generated at that same reduced
+    count level -- unlike true_val_gt (phantom design value, alpha-
+    independent), true_val_label should already be on the same alpha-
+    scaled footing as "measured". mean_rc_over_alpha is kept below for
+    continuity with the old GT-based numbers, but check the printed
+    per-alpha true_val_label values the first time you run this --
+    if true_val_label scales roughly linearly with alpha, mean_rc should
+    already be close to alpha-independent and dividing by alpha again
+    may not be the right thing to do. Flag this rather than assume it.
  
     Returns (combined_row, per_voi_entries). combined_row is None if the
-    input file is missing (skipped, e.g. an incomplete data generation
-    run); per_voi_entries is always a list (possibly empty).
+    input or label file is missing; per_voi_entries is always a list
+    (possibly empty).
     """
     inp_path = os.path.join(data_dir, f"alpha_{alpha_str}", f"{input_prefix}_{phantom_idx:04d}.npy")
+    label_path = os.path.join(data_dir, f"alpha_{alpha_str}", f"label_{phantom_idx:04d}.npy")
     if not os.path.exists(inp_path):
         print(f"[skip] phantom {phantom_idx:04d} alpha_{alpha_str}: missing {inp_path}")
         return None, []
+    if not os.path.exists(label_path):
+        print(f"[skip] phantom {phantom_idx:04d} alpha_{alpha_str}: missing {label_path}")
+        return None, []
  
-    noisy = np.load(inp_path).astype(np.float32)
+    measured = np.load(inp_path).astype(np.float32)
+    label = np.load(label_path).astype(np.float32)
  
     combined_mask, per_voi, background = build_voi_masks(phantom_idx, seed_base=seed_base)
     alpha_val = alpha_to_float(alpha_str)
@@ -102,14 +144,21 @@ def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
         # mean ellipsoid intensity (overlap regions are an approximation
         # -- see quantification.py note). Fine for a first-pass baseline.
         mean_intensity = float(np.mean([v["intensity"] for v in per_voi])) if per_voi else 0.0
-        true_val_combined = background + mean_intensity
-        vals = noisy[combined_mask]
-        combined_mean_rc = float(vals.mean()) / true_val_combined
-        combined_bias_pct = (float(vals.mean()) - true_val_combined) / true_val_combined * 100.0
-        # remove the expected/known count-level scaling -- see
-        # alpha_to_float() docstring above for why this matters.
+        true_val_gt = background + mean_intensity
+        true_val_label = float(label[combined_mask].mean())
+        measured_mean = float(measured[combined_mask].mean())
+ 
+        recon_rc = true_val_label / (true_val_gt + eps)
+        recon_bias_pct = (true_val_label - true_val_gt) / (true_val_gt + eps) * 100.0
+ 
+        combined_mean_rc = measured_mean / (true_val_label + eps)
+        combined_bias_pct = (measured_mean - true_val_label) / (true_val_label + eps) * 100.0
+        # kept for continuity with the old GT-based numbers -- see NOTE
+        # on alpha-normalisation in the docstring above before trusting this.
         combined_mean_rc_over_alpha = combined_mean_rc / alpha_val
     else:
+        true_val_gt = true_val_label = float("nan")
+        recon_rc, recon_bias_pct = float("nan"), float("nan")
         combined_mean_rc, combined_bias_pct = float("nan"), float("nan")
         combined_mean_rc_over_alpha = float("nan")
  
@@ -117,6 +166,10 @@ def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
         "phantom_idx": phantom_idx,
         "alpha": alpha_str,
         "n_voi": len(per_voi),
+        "true_val_gt": true_val_gt,
+        "true_val_label": true_val_label,
+        "recon_rc_label_over_gt": recon_rc,
+        "recon_bias_pct": recon_bias_pct,
         "combined_mean_rc": combined_mean_rc,
         "combined_bias_pct": combined_bias_pct,
         "combined_mean_rc_over_alpha": combined_mean_rc_over_alpha,
@@ -125,10 +178,13 @@ def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
     # --- per-VOI recovery, so you can group by size later ---
     per_voi_entries = []
     for i, v in enumerate(per_voi):
-        true_val = background + v["intensity"]
-        vals = noisy[v["mask"]]
-        mean_rc = float(vals.mean()) / true_val
-        bias_pct = (float(vals.mean()) - true_val) / true_val * 100.0
+        true_val_gt_v = background + v["intensity"]
+        true_val_label_v = float(label[v["mask"]].mean())
+        measured_mean_v = float(measured[v["mask"]].mean())
+ 
+        recon_rc_v = true_val_label_v / (true_val_gt_v + eps)
+        mean_rc = measured_mean_v / (true_val_label_v + eps)
+        bias_pct = (measured_mean_v - true_val_label_v) / (true_val_label_v + eps) * 100.0
         mean_rc_over_alpha = mean_rc / alpha_val
  
         per_voi_entries.append({
@@ -138,6 +194,9 @@ def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
             "voi_idx": i,
             "mean_radius_vox": v["mean_radius_vox"],
             "n_voxels": v["n_voxels"],
+            "true_val_gt": true_val_gt_v,
+            "true_val_label": true_val_label_v,
+            "recon_rc_label_over_gt": recon_rc_v,
             "mean_rc": mean_rc,
             "bias_pct": bias_pct,
             "mean_rc_over_alpha": mean_rc_over_alpha,
@@ -145,9 +204,11 @@ def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
         })
  
     if verbose:
+        tag = "CNN out" if input_prefix == "denoised" else "noisy in"
         print(f"phantom {phantom_idx:04d} alpha_{alpha_str}: "
-              f"combined RC={combined_mean_rc:.3f} (RC/alpha={combined_mean_rc_over_alpha:.3f}) "
-              f"bias={combined_bias_pct:+.1f}% ({len(per_voi)} VOIs)")
+              f"recon(label/GT)={recon_rc:.3f}  {tag}/label RC={combined_mean_rc:.3f} "
+              f"(RC/alpha={combined_mean_rc_over_alpha:.3f}) bias={combined_bias_pct:+.1f}% "
+              f"({len(per_voi)} VOIs)")
  
     return combined_row, per_voi_entries
  
@@ -245,7 +306,8 @@ def main():
             rows.append(combined_row)
  
     # ---- write a flat summary CSV (combined-level numbers) ----
-    fieldnames = ["phantom_idx", "alpha", "n_voi", "combined_mean_rc",
+    fieldnames = ["phantom_idx", "alpha", "n_voi", "true_val_gt", "true_val_label",
+                  "recon_rc_label_over_gt", "recon_bias_pct", "combined_mean_rc",
                   "combined_bias_pct", "combined_mean_rc_over_alpha"]
     with open(args.out_csv, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -254,15 +316,24 @@ def main():
             writer.writerow({k: r[k] for k in fieldnames})
  
     # ---- also print an overall summary, grouped by alpha ----
-    print(f"\n=== Summary by alpha (noisy input, before denoising, split={args.split}) ===")
+    tag = "CNN output" if args.input_prefix == "denoised" else "noisy input"
+    print(f"\n=== Summary by alpha ({tag} vs label, split={args.split}) ===")
     alphas = sorted(set(r["alpha"] for r in rows))
     for a in alphas:
         subset = [r["combined_mean_rc"] for r in rows if r["alpha"] == a and not np.isnan(r["combined_mean_rc"])]
         subset_norm = [r["combined_mean_rc_over_alpha"] for r in rows
                         if r["alpha"] == a and not np.isnan(r["combined_mean_rc_over_alpha"])]
+        subset_recon = [r["recon_rc_label_over_gt"] for r in rows
+                         if r["alpha"] == a and not np.isnan(r["recon_rc_label_over_gt"])]
+        subset_label = [r["true_val_label"] for r in rows if r["alpha"] == a and not np.isnan(r["true_val_label"])]
         if subset:
-            print(f"  alpha_{a}: mean RC = {np.mean(subset):.3f}  "
-                  f"mean RC/alpha = {np.mean(subset_norm):.3f} (n={len(subset)})")
+            print(f"  alpha_{a}: mean RC (vs label) = {np.mean(subset):.3f}  "
+                  f"mean RC/alpha = {np.mean(subset_norm):.3f}  "
+                  f"recon RC (label/GT) = {np.mean(subset_recon):.3f}  "
+                  f"mean true_val_label = {np.mean(subset_label):.3f}  (n={len(subset)})")
+    print("\n  (check mean true_val_label above across alpha groups -- if it scales "
+          "roughly linearly with alpha, RC vs label is already alpha-matched and "
+          "RC/alpha may be double-normalising; see docstring note in process_phantom)")
  
     # RC/alpha should be roughly flat across alpha groups if the residual
     # bias is purely count-level/noise-driven and not something else --
@@ -302,8 +373,9 @@ def main():
  
     # ---- write the flat per-VOI CSV ----
     per_voi_fieldnames = ["phantom_idx", "alpha", "alpha_val", "voi_idx",
-                           "mean_radius_vox", "n_voxels", "mean_rc",
-                           "bias_pct", "mean_rc_over_alpha", "is_isolated"]
+                           "mean_radius_vox", "n_voxels", "true_val_gt", "true_val_label",
+                           "recon_rc_label_over_gt", "mean_rc", "bias_pct",
+                           "mean_rc_over_alpha", "is_isolated"]
     with open(args.per_voi_csv, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=per_voi_fieldnames)
         writer.writeheader()

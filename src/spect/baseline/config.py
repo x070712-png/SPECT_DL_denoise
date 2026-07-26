@@ -86,30 +86,27 @@ NORMALIZATION_CONFIG = {
     "stage_1": {
         "name": "mean_volume_scale",
         "source": "core/transforms.py: SaveMeand + DivideByScaled",
-        "scale": "input.mean()  — per-volume mean of the NOISY INPUT only "
-                 "(not the label)",
+        "scale": "input.mean()  — per-volume mean of the noisy input only ",
         "applied_to": "both input and label, divided by this same scale, "
                        "BEFORE the network sees them",
-        "deployable": True,  # only needs the input — no label required,
-                              # so this is computable at real inference time
-                              # (resolves the concern Kris raised: label-only
-                              # scales like peak-of-label aren't available
-                              # when there's no ground truth)
+        "deployable": True,  # only needs the input — no label required, 
+                              # so can be used at inference time on unseen data
+                            
     },
     "stage_2": {
         "name": "combined_loss internal peak renorm",
         "source": "core/metrics.py: combined_loss()",
-        "scale": "gt_cnt.amax() per volume — peak of the STAGE-1-NORMALISED "
+        "scale": "gt_cnt.amax() per volume — peak of the STAGE-1 "
                  "label, recomputed fresh inside the loss function",
         "applied_to": "pred and gt, only for computing the 0.5*MSE + 0.5*SSIM "
                        "training loss — NOT used for the network's "
                        "input/output scaling, and not needed at inference",
-        "deployable": False,  # doesn't matter — training-only, needs labels
-                              # by definition (supervised loss)
+        "deployable": False,  # doesn't matter — training-only, needs labels by definition (supervised loss)
+                              
     },
     "count_domain_metrics": "out_cnt = out_normalised * stage_1_scale, "
-                             "lbl_cnt = lbl_normalised * stage_1_scale — "
-                             "restores true count-domain values for "
+                             "lbl_cnt = lbl_normalised * stage_1_scale"
+                             " --- restores true count-domain values for "
                              "MSE_cnt/PSNR/eval-SSIM using the SAME stage-1 "
                              "(mean) scale used going in",
  
