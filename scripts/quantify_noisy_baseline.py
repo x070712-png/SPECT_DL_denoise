@@ -68,7 +68,7 @@ def compute_isolation_flags(per_voi):
  
  
 def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
-                     input_prefix="input", eps=1e-8):
+                     input_prefix="input", eps=1e-8, label_dir=None):
     """Load one phantom's noisy input (or, with input_prefix="denoised",
     a model's restored count-domain output -- see run_inference_dump.py)
     PLUS its label (label_{idx}.npy -- the noise-free reconstruction the
@@ -121,9 +121,19 @@ def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
     Returns (combined_row, per_voi_entries). combined_row is None if the
     input or label file is missing; per_voi_entries is always a list
     (possibly empty).
+ 
+    label_dir: where to look for label_{idx}.npy. Defaults to data_dir
+    (fine when data_dir IS data/dataset, i.e. input_prefix="input"), but
+    MUST be set explicitly to the original data/dataset root when data_dir
+    points at a run_inference_dump.py output folder (input_prefix=
+    "denoised") -- that folder only ever contains denoised_{idx}.npy, it
+    never copies the labels alongside them, so label lookups would
+    otherwise all silently miss and every phantom gets skipped.
     """
+    if label_dir is None:
+        label_dir = data_dir
     inp_path = os.path.join(data_dir, f"alpha_{alpha_str}", f"{input_prefix}_{phantom_idx:04d}.npy")
-    label_path = os.path.join(data_dir, f"alpha_{alpha_str}", f"label_{phantom_idx:04d}.npy")
+    label_path = os.path.join(label_dir, f"alpha_{alpha_str}", f"label_{phantom_idx:04d}.npy")
     if not os.path.exists(inp_path):
         print(f"[skip] phantom {phantom_idx:04d} alpha_{alpha_str}: missing {inp_path}")
         return None, []
@@ -243,6 +253,13 @@ def print_size_binned_summary(title, entries, n_size_bins):
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--data_dir", type=str, default="data/dataset")
+    p.add_argument("--label_dir", type=str, default=None,
+                    help="where label_{idx}.npy files live. Defaults to --data_dir, "
+                         "which is correct when --input_prefix=input (data_dir IS "
+                         "data/dataset). MUST be set explicitly to data/dataset when "
+                         "--input_prefix=denoised, since run_inference_dump.py's output "
+                         "folder only contains denoised_{idx}.npy, not the labels -- "
+                         "e.g. --data_dir logs/denoised/3d_unet --label_dir data/dataset")
     p.add_argument("--split", type=str, default="val", choices=["train", "val", "test"],
                     help="split used for the combined-mask RC-by-alpha baseline "
                          "(should match whatever split the after-denoising "
@@ -301,7 +318,8 @@ def main():
     for phantom_idx, alpha_str in pairs:
         combined_row, _ = process_phantom(phantom_idx, alpha_str, args.data_dir,
                                            args.seed_base, verbose=True,
-                                           input_prefix=args.input_prefix)
+                                           input_prefix=args.input_prefix,
+                                           label_dir=args.label_dir)
         if combined_row is not None:
             rows.append(combined_row)
  
@@ -366,7 +384,8 @@ def main():
     for i, (phantom_idx, alpha_str) in enumerate(all_pairs):
         _, per_voi_entries = process_phantom(phantom_idx, alpha_str, args.data_dir,
                                               args.seed_base, verbose=False,
-                                              input_prefix=args.input_prefix)
+                                              input_prefix=args.input_prefix,
+                                              label_dir=args.label_dir)
         per_voi_rows.extend(per_voi_entries)
         if (i + 1) % 100 == 0:
             print(f"  ...processed {i + 1}/{len(all_pairs)} phantoms")
@@ -431,3 +450,4 @@ def main():
  
 if __name__ == "__main__":
     main()
+ 
