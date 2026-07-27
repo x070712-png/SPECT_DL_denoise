@@ -244,6 +244,12 @@ def print_size_binned_summary(title, entries, n_size_bins):
             continue
         mean_rc_bin = np.mean([r["mean_rc"] for r in in_bin])
         mean_rc_over_alpha_bin = np.mean([r["mean_rc_over_alpha"] for r in in_bin])
+        # both printed always: raw mean_rc is the number to trust for a
+        # denoised (CNN-output) run (no known linear alpha-scaling to
+        # normalise out there -- see docstring), mean_rc/alpha is the
+        # number to trust for a raw-input run comparing across alpha
+        # levels. Printing both avoids having to remember which is valid
+        # for which run.
         print(f"  radius [{lo:.1f}, {hi:.1f}) vox: n={len(in_bin):3d}  "
               f"mean RC={mean_rc_bin:.3f}  mean RC/alpha={mean_rc_over_alpha_bin:.3f}")
  
@@ -278,16 +284,22 @@ def parse_args():
                          "count-domain output, written by run_inference_dump.py) -- "
                          "everything else about the RC computation is identical, so "
                          "the two runs' CSVs are directly comparable")
-    p.add_argument("--pool_all_for_size_analysis", action="store_true", default=None,
+    p.add_argument("--pool_all_for_size_analysis", type=str, default="auto",
+                    choices=["auto", "yes", "no"],
                     help="Pass 2 (per-ellipsoid size analysis) pools train+val+test "
-                         "by default when --input_prefix=input (no model involved, no "
-                         "leakage concern, more statistical power). When "
-                         "--input_prefix=denoised, this defaults to OFF instead -- "
+                         "by default ('auto') when --input_prefix=input (no model "
+                         "involved, no leakage concern, more statistical power). When "
+                         "--input_prefix=denoised, 'auto' instead defaults to OFF -- "
                          "pooling in train would mix in samples the model was "
                          "directly optimised on, inflating RC on those phantoms "
-                         "relative to true generalisation. Pass --pool_all_for_size_analysis "
-                         "to force pooling anyway (e.g. if you only care about the "
-                         "reconstruction-pipeline PVE trend and are OK with the caveat).")
+                         "relative to true generalisation. Pass 'yes' to force pooling "
+                         "anyway (e.g. if you only care about the reconstruction-"
+                         "pipeline PVE trend and are OK with the caveat), or 'no' to "
+                         "force restricting to --split only even when --input_prefix="
+                         "input -- needed to run a val-only 'before CNN' per-VOI/"
+                         "isolated-ellipsoid comparison that's sample-matched against "
+                         "a val-only 'after CNN' run (auto would otherwise pool all "
+                         "500 phantoms here, giving the two legs different sample sets).")
     return p.parse_args()
  
  
@@ -302,11 +314,14 @@ def main():
     # pool_all_for_size_analysis default depends on input_prefix -- see
     # parse_args() help text: pooling train is fine with no model involved,
     # but leaks train performance into the number once a checkpoint is
-    # measuring the data.
-    if args.pool_all_for_size_analysis is None:
+    # measuring the data. 'yes'/'no' override the auto-default explicitly
+    # in either direction (e.g. 'no' with --input_prefix=input, to force a
+    # val-only 'before CNN' run that's sample-matched against a val-only
+    # 'after CNN' run).
+    if args.pool_all_for_size_analysis == "auto":
         pool_all = (args.input_prefix == "input")
     else:
-        pool_all = args.pool_all_for_size_analysis
+        pool_all = (args.pool_all_for_size_analysis == "yes")
  
     # ------------------------------------------------------------------
     # Pass 1: combined-mask RC by alpha, scoped to --split. This is the
@@ -431,7 +446,14 @@ def main():
                 in_bin = [r for r in per_voi_rows
                           if r["alpha"] == a and lo <= r["mean_radius_vox"] < hi]
                 if in_bin:
-                    parts.append(f"bin{b}(n={len(in_bin)}) RC/alpha="
+                    # print BOTH raw RC and RC/alpha -- raw RC is the
+                    # number to trust for a denoised (CNN-output) run,
+                    # RC/alpha for a raw-input run (see process_phantom
+                    # docstring). Previously only RC/alpha was printed
+                    # here, which silently mis-served denoised runs.
+                    parts.append(f"bin{b}(n={len(in_bin)}) RC="
+                                 f"{np.mean([r['mean_rc'] for r in in_bin]):.3f}"
+                                 f"/RC/alpha="
                                  f"{np.mean([r['mean_rc_over_alpha'] for r in in_bin]):.3f}")
             print(line + "  ".join(parts))
  
@@ -450,4 +472,3 @@ def main():
  
 if __name__ == "__main__":
     main()
- 
