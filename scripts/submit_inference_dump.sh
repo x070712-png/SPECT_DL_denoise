@@ -40,7 +40,7 @@ export PYTHONUNBUFFERED=1
  
 python3 scripts/run_inference_dump.py \
     --data_dir data/dataset \
-    --split val \
+    --split test \
     --checkpoint checkpoints/3d_unet/best_model.pth \
     --model unet \
     --out_dir logs/denoised/3d_unet \
