@@ -36,9 +36,17 @@ mkdir -p "$OUT_DIR_HOST"
 n=0
 tail -n +2 "$MANIFEST" | while IFS=, read -r par_path basename phantom_idx alpha_str gender; do
     n=$((n + 1))
-    # par_path in the manifest is a host path (e.g. xcat/XCAT_latest/parfiles/xcat_0000.par)
-    # -- convert to the path as seen INSIDE the container, relative to /xcat
-    rel_par_path="${par_path#"$XCAT_HOST_DIR"/}"
+    # Don't try to prefix-strip par_path (it's written relative to wherever
+    # generate_xcat_parfiles.py was run FROM, e.g. "xcat/XCAT_latest/parfiles/
+    # xcat_0000.par" relative to the repo root -- NOT relative to
+    # XCAT_HOST_DIR, so stripping XCAT_HOST_DIR from it is a no-op and the
+    # container ends up looking for /xcat/xcat/XCAT_latest/parfiles/... ,
+    # which doesn't exist -- this was the "Fatal: ... Error opening file" bug).
+    # Instead just reconstruct the path directly from basename, since
+    # generate_xcat_parfiles.py always writes to <out_dir>/<basename>.par and
+    # out_dir is documented as xcat/XCAT_latest/parfiles -- so relative to
+    # /xcat (the bind target) it's always "parfiles/<basename>.par".
+    rel_par_path="parfiles/${basename}.par"
     echo "[$n] $basename (alpha_$alpha_str, $gender) <- $rel_par_path"
  
     apptainer exec --bind "$XCAT_HOST_DIR":/xcat "$CONTAINER_SIF" \
@@ -57,4 +65,3 @@ echo ""
 echo "Next: build the manifest generate_xcat_dataset.py needs (phantom_path,alpha_str):"
 echo "  awk -F, -v d=\"$OUT_DIR_HOST\" 'NR==1{print \"phantom_path,alpha_str\"; next}"
 echo "  {print d\"/\"\$2\"_act_1.bin,\"\$4}' $MANIFEST > xcat_dataset_manifest.csv"
- 
