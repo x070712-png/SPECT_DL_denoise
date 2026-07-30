@@ -8,7 +8,7 @@
 #$ -l h_rt=4:00:00
 #$ -l mem=8G
 #$ -l tmpfs=10G
-#$ -t 1-1
+#$ -t 1-100
 #$ -tc 50
 #$ -N spect_xcat_dataset
 #$ -wd /home/ucapiuw/SPECT_DL_denoise
