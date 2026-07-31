@@ -68,7 +68,7 @@ python3 -c "import torch; print('torch', torch.__version__, 'cuda available:', t
 # batch_size=2 and lr=5e-5 (not U-Net's 4 / 1e-4) -- match Wei Miao's actual
 # experiments/Swin_UNETR/pre_training/train.py, see config.py
 # SWIN_UNETR_TRAINING_CONFIG for the full hyperparameter set.
-python3 scripts/train_swin_unetr.py \
+python3 train/train_swin_unetr.py \
     --data_dir data/dataset \
     --checkpoint_dir checkpoints/swin_unetr \
     --log_dir logs/swin_unetr \

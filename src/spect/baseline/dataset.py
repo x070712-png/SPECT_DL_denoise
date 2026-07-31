@@ -1,4 +1,3 @@
-from matplotlib import scale
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -17,6 +16,13 @@ GROUP_TO_ALPHA = {
     4: '0p05',  # Group 4 (phantom 400-499) -> alpha 0.05
 }
 
+ALPHA_STR_TO_FLOAT = {
+    '1p0': 1.0,
+    '0p5': 0.5,
+    '0p25': 0.25,
+    '0p125': 0.125,
+    '0p05': 0.05,
+}
 
 def build_split(split):
     """
@@ -69,9 +75,10 @@ def build_train_augmentation():
     ])
 
 class SPECTDataset(Dataset):
-    def __init__(self, data_dir, split):
+    def __init__(self, data_dir, split, scale_label_by_alpha=False):
         self.data_dir = Path(data_dir)
         self.split = split
+        self.scale_label_by_alpha = scale_label_by_alpha
         self.pairs = build_split(split)
         self.samples = []
  
@@ -88,7 +95,7 @@ class SPECTDataset(Dataset):
                 skipped.append((phantom_idx, alpha_str, "truncated/empty"))
                 continue
 
-            self.samples.append((inp_path, lbl_path))
+            self.samples.append((inp_path, lbl_path, alpha_str))
 
         if skipped:
             print(f"[{split}] WARNING: skipped {len(skipped)} corrupted/missing sample(s):")
@@ -105,15 +112,19 @@ class SPECTDataset(Dataset):
         return len(self.samples)
  
     def __getitem__(self, idx):
-        inp = np.load(self.samples[idx][0]).astype(np.float32)
-        lbl = np.load(self.samples[idx][1]).astype(np.float32)
- 
+        inp_path, lbl_path, alpha_str = self.samples[idx]
+        inp = np.load(inp_path).astype(np.float32)
+        lbl = np.load(lbl_path).astype(np.float32)
+
         inp = torch.from_numpy(inp).unsqueeze(0)  # (1, D, H, W)
         lbl = torch.from_numpy(lbl).unsqueeze(0)
- 
+
         scale = inp.mean().clamp(min=1e-8)
         inp = inp / scale
         lbl = lbl / scale
+
+        if self.scale_label_by_alpha:
+            lbl = lbl * ALPHA_STR_TO_FLOAT[alpha_str]
 
         if self.transform is not None:
             data = {"input": inp, "label": lbl}

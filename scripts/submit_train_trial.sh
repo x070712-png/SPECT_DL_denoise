@@ -36,7 +36,7 @@ python3 -c "import torch; print('torch', torch.__version__, 'cuda available:', t
 
 # Only 2 epochs, separate checkpoint/log dirs so this doesn't clobber
 # a real run's outputs.
-python3 scripts/train_unet.py \
+python3 train/train_unet.py \
     --data_dir data/dataset \
     --checkpoint_dir checkpoints/3d_unet_trial \
     --log_dir logs/3d_unet_trial \
