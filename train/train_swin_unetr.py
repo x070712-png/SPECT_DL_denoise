@@ -11,6 +11,12 @@ otherwise handle is done explicitly here -- IDENTICAL logic to train_unet.py
 (mean_volume_scale from the noisy input + combined_loss's own internal
 peak renorm), because both his U-Net and Swin UNETR scripts share the same
 core/transforms.py and core/metrics.py.
+
+--init_checkpoint (NEW): optional path to a pretrained .pth to load into the
+model before training starts, for fine-tuning on a different dataset (e.g.
+XCAT) starting from the ellipsoid-pretrained weights, instead of training
+from scratch. Leave unset for normal from-scratch pre-training (default,
+unaffected).
 """
 
 import argparse
@@ -48,6 +54,15 @@ def parse_args():
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--scale_label_by_alpha", action="store_true",
                help="Scale labels by alpha for normalization. Disabled by default and does not affect existing checkpoints.")
+    p.add_argument("--init_checkpoint", type=str, default=None,
+               help="path to a pretrained checkpoint (.pth) to load into the model "
+                    "before training starts -- for fine-tuning on a new dataset "
+                    "(e.g. XCAT) starting from the ellipsoid-pretrained weights. "
+                    "MUST match the method (scale_label_by_alpha on/off) the "
+                    "checkpoint was itself pretrained with, or the target scale the "
+                    "model already learned to predict will be inconsistent with "
+                    "the fine-tuning targets. Leave unset for training from scratch "
+                    "(default, unaffected).")
     return p.parse_args()
 
 
@@ -86,6 +101,14 @@ def main():
     # UNETR script exactly (see module docstring for the diffs vs U-Net)
     # ------------------------------------------------------------------
     model = get_swin_unetr(device)
+    
+    # ---- NEW: optional fine-tuning init from a pretrained checkpoint ----
+    if args.init_checkpoint:
+        print(f"Loading pretrained weights from {args.init_checkpoint} "
+              f"(fine-tuning mode)")
+        state_dict = torch.load(args.init_checkpoint, map_location=device)
+        model.load_state_dict(state_dict)
+ 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     lr_scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.8, patience=3, min_lr=3e-6)
 
