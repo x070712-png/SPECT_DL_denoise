@@ -97,10 +97,15 @@ def parse_args():
     p.add_argument("--input_prefix", type=str, default="input",
                     help="'input' for the raw noisy baseline (default), or "
                          "'denoised' for a checkpoint's restored output "
-                         "(written by a NEMA/EARL inference-dump step)")
+                         "(written by a NEMA/EARL inference-dump step). "
+                         "Reads {input_prefix}_seed{seed}.npy for each --seeds entry.")
     p.add_argument("--alphas", type=float, nargs="+", default=COUNT_LEVELS)
+    p.add_argument("--seeds", type=int, nargs="+", default=[42],
+                    help="noise realization seeds to average RC over -- must "
+                         "match what generate_eval_phantom_dataset.py was run "
+                         "with (default: single seed 42, no averaging).")
     p.add_argument("--out_csv", type=str, required=True,
-                    help="per-alpha, per-sphere RC output CSV")
+                    help="per-alpha, per-sphere, per-seed RC output CSV")
     p.add_argument("--eps", type=float, default=1e-8)
     return p.parse_args()
 
@@ -108,14 +113,14 @@ def parse_args():
 def main():
     args = parse_args()
     os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
-
+ 
     activity = np.load(args.activity).astype(np.float32)
     print(f"Loaded activity map: {args.activity} "
           f"(shape={activity.shape}, min={activity.min():.4f}, max={activity.max():.4f})")
-
+ 
     spheres = find_sphere_masks(args.sphere_dir, args.sphere_prefix)
     print(f"Found {len(spheres)} sphere masks: {[s[0] for s in spheres]} mm")
-
+ 
     sphere_masks = []
     for size_mm, path in spheres:
         mask = np.load(path).astype(bool)
@@ -132,64 +137,70 @@ def main():
             "true_val_gt": true_val_gt,
         })
         print(f"  {size_mm}mm sphere: n_voxels={n_voxels}, true_val_gt={true_val_gt:.4f}")
-
-    rows = []
+ 
+    rows = []  # per (alpha, sphere, seed) -- raw, unaveraged
     for alpha in args.alphas:
         alpha_str = ALPHA_STR.get(alpha, str(alpha).replace(".", "p"))
         alpha_dir = os.path.join(args.data_dir, f"alpha_{alpha_str}")
-
-        measured_path = os.path.join(alpha_dir, f"{args.input_prefix}.npy")
+ 
         label_path = os.path.join(alpha_dir, "label.npy")
-
-        if not os.path.exists(measured_path):
-            print(f"[skip] alpha_{alpha_str}: missing {measured_path}")
-            continue
         if not os.path.exists(label_path):
             print(f"[skip] alpha_{alpha_str}: missing {label_path}")
             continue
-
-        measured = np.load(measured_path).astype(np.float32)
         label = np.load(label_path).astype(np.float32)
-
-        for sph in sphere_masks:
-            mask = sph["mask"]
-            n_voxels = sph["n_voxels"]
-            if n_voxels == 0:
+ 
+        for seed in args.seeds:
+            measured_path = os.path.join(alpha_dir, f"{args.input_prefix}_seed{seed}.npy")
+            if not os.path.exists(measured_path):
+                print(f"[skip] alpha_{alpha_str} seed={seed}: missing {measured_path}")
                 continue
-
-            true_val_gt = sph["true_val_gt"]
-            true_val_label = float(label[mask].mean())
-            measured_mean = float(measured[mask].mean())
-
-            recon_rc = true_val_label / (true_val_gt + args.eps)
-            recon_bias_pct = (true_val_label - true_val_gt) / (true_val_gt + args.eps) * 100.0
-
-            mean_rc = measured_mean / (true_val_label + args.eps)
-            bias_pct = (measured_mean - true_val_label) / (true_val_label + args.eps) * 100.0
-            mean_rc_over_alpha = mean_rc / alpha
-
-            row = {
-                "sphere_mm": sph["size_mm"],
-                "alpha": alpha_str,
-                "alpha_val": alpha,
-                "n_voxels": n_voxels,
-                "true_val_gt": true_val_gt,
-                "true_val_label": true_val_label,
-                "measured_mean": measured_mean,
-                "recon_rc_label_over_gt": recon_rc,
-                "recon_bias_pct": recon_bias_pct,
-                "mean_rc": mean_rc,
-                "bias_pct": bias_pct,
-                "mean_rc_over_alpha": mean_rc_over_alpha,
-            }
-            rows.append(row)
-
-            tag = "CNN out" if args.input_prefix == "denoised" else "noisy in"
+            measured = np.load(measured_path).astype(np.float32)
+ 
+            for sph in sphere_masks:
+                mask = sph["mask"]
+                n_voxels = sph["n_voxels"]
+                if n_voxels == 0:
+                    continue
+ 
+                true_val_gt = sph["true_val_gt"]
+                true_val_label = float(label[mask].mean())
+                measured_mean = float(measured[mask].mean())
+ 
+                recon_rc = true_val_label / (true_val_gt + args.eps)
+                recon_bias_pct = (true_val_label - true_val_gt) / (true_val_gt + args.eps) * 100.0
+ 
+                mean_rc = measured_mean / (true_val_label + args.eps)
+                bias_pct = (measured_mean - true_val_label) / (true_val_label + args.eps) * 100.0
+                mean_rc_over_alpha = mean_rc / alpha
+ 
+                rows.append({
+                    "sphere_mm": sph["size_mm"],
+                    "alpha": alpha_str,
+                    "alpha_val": alpha,
+                    "seed": seed,
+                    "n_voxels": n_voxels,
+                    "true_val_gt": true_val_gt,
+                    "true_val_label": true_val_label,
+                    "measured_mean": measured_mean,
+                    "recon_rc_label_over_gt": recon_rc,
+                    "recon_bias_pct": recon_bias_pct,
+                    "mean_rc": mean_rc,
+                    "bias_pct": bias_pct,
+                    "mean_rc_over_alpha": mean_rc_over_alpha,
+                })
+ 
+        tag = "CNN out" if args.input_prefix == "denoised" else "noisy in"
+        for sph in sphere_masks:
+            vals = [r["mean_rc"] for r in rows if r["alpha"] == alpha_str and r["sphere_mm"] == sph["size_mm"]]
+            vals_norm = [r["mean_rc_over_alpha"] for r in rows if r["alpha"] == alpha_str and r["sphere_mm"] == sph["size_mm"]]
+            if not vals:
+                continue
             print(f"alpha_{alpha_str} sphere={sph['size_mm']}mm: "
-                  f"recon(label/GT)={recon_rc:.3f}  {tag}/label RC={mean_rc:.3f} "
-                  f"(RC/alpha={mean_rc_over_alpha:.3f}) bias={bias_pct:+.1f}%")
-
-    fieldnames = ["sphere_mm", "alpha", "alpha_val", "n_voxels", "true_val_gt",
+                  f"{tag}/label RC = {np.mean(vals):.3f} +/- {np.std(vals):.3f}  "
+                  f"(RC/alpha = {np.mean(vals_norm):.3f} +/- {np.std(vals_norm):.3f}, "
+                  f"n_seeds={len(vals)})")
+ 
+    fieldnames = ["sphere_mm", "alpha", "alpha_val", "seed", "n_voxels", "true_val_gt",
                   "true_val_label", "measured_mean", "recon_rc_label_over_gt",
                   "recon_bias_pct", "mean_rc", "bias_pct", "mean_rc_over_alpha"]
     with open(args.out_csv, "w", newline="") as f:
@@ -197,27 +208,31 @@ def main():
         writer.writeheader()
         for r in rows:
             writer.writerow({k: r[k] for k in fieldnames})
-    print(f"\nSaved {len(rows)} rows to {args.out_csv}")
-
-    # ---- summary by alpha (averaged across spheres) ----
+    print(f"\nSaved {len(rows)} rows (per alpha x sphere x seed) to {args.out_csv}")
+ 
+    # ---- summary by alpha (averaged across spheres AND seeds) ----
     tag = "CNN output" if args.input_prefix == "denoised" else "noisy input"
-    print(f"\n=== Summary by alpha ({tag} vs label) ===")
+    print(f"\n=== Summary by alpha ({tag} vs label, averaged over "
+          f"{len(args.seeds)} noise realization(s) x spheres) ===")
     alphas_seen = sorted(set(r["alpha"] for r in rows), key=lambda a: ALPHA_STR_TO_FLOAT.get(a, 0))
     for a in alphas_seen:
         subset = [r["mean_rc"] for r in rows if r["alpha"] == a]
         subset_norm = [r["mean_rc_over_alpha"] for r in rows if r["alpha"] == a]
-        print(f"  alpha_{a}: mean RC = {np.mean(subset):.3f}  "
-              f"mean RC/alpha = {np.mean(subset_norm):.3f}  (n_spheres={len(subset)})")
-
-    # ---- summary by sphere size (averaged across alpha) ----
-    print(f"\n=== Summary by sphere size (averaged across all alphas) ===")
+        print(f"  alpha_{a}: mean RC = {np.mean(subset):.3f} +/- {np.std(subset):.3f}  "
+              f"mean RC/alpha = {np.mean(subset_norm):.3f} +/- {np.std(subset_norm):.3f}  "
+              f"(n={len(subset)} = n_spheres x n_seeds)")
+ 
+    # ---- summary by sphere size (averaged across alpha AND seeds) ----
+    print(f"\n=== Summary by sphere size (averaged across all alphas x "
+          f"{len(args.seeds)} noise realization(s)) ===")
     sizes_seen = sorted(set(r["sphere_mm"] for r in rows))
     for sz in sizes_seen:
         subset = [r["mean_rc"] for r in rows if r["sphere_mm"] == sz]
         subset_norm = [r["mean_rc_over_alpha"] for r in rows if r["sphere_mm"] == sz]
-        print(f"  {sz}mm: mean RC = {np.mean(subset):.3f}  "
-              f"mean RC/alpha = {np.mean(subset_norm):.3f}  (n_alphas={len(subset)})")
-
-
+        print(f"  {sz}mm: mean RC = {np.mean(subset):.3f} +/- {np.std(subset):.3f}  "
+              f"mean RC/alpha = {np.mean(subset_norm):.3f} +/- {np.std(subset_norm):.3f}  "
+              f"(n={len(subset)})")
+ 
+ 
 if __name__ == "__main__":
     main()

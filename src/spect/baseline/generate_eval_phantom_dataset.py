@@ -58,8 +58,13 @@ def parse_args():
     p.add_argument("--alphas", type=float, nargs="+", default=COUNT_LEVELS,
                     help=f"count levels to run (default: all of {COUNT_LEVELS}, matching "
                          f"the ellipsoid/XCAT training count levels for comparability)")
-    p.add_argument("--seed", type=int, default=42,
-                    help="seed for the Poisson noise draw")
+    p.add_argument("--seeds", type=int, nargs="+", default=[42],
+                    help="one or more seeds for independent Poisson noise draws -- "
+                         "e.g. --seeds 42 43 44 45 46 for 5 independent noise "
+                         "realizations per alpha (RECOMMENDED for NEMA/EARL RC "
+                         "stability, since it's a single fixed phantom, not 10+ "
+                         "different phantoms like the ellipsoid/XCAT test split). "
+                         "Default is a single seed (42) for backward compatibility.")
     return p.parse_args()
 
 
@@ -76,7 +81,7 @@ def load_array(path, expected_shape=VOLUME_SHAPE):
 
 def main():
     args = parse_args()
-    np.random.seed(args.seed)
+
 
     activity = load_array(args.activity)
     att_map_array = load_array(args.att_map)
@@ -96,29 +101,60 @@ def main():
         out_subdir = os.path.join(args.out_dir, f"alpha_{alpha_str}")
         os.makedirs(out_subdir, exist_ok=True)
         label_path = os.path.join(out_subdir, "label.npy")
-        input_path = os.path.join(out_subdir, "input.npy")
 
-        if os.path.exists(label_path) and os.path.exists(input_path):
-            print(f"[skip] alpha_{alpha_str}: already exists")
-            continue
-
-        print(f"[alpha_{alpha_str}] forward projecting (real attenuation)...")
-        clean_sino, noisy_sino = acquire_data(activity, templ_sino, alpha=alpha, umap=umap)
-
-        print(f"[alpha_{alpha_str}] reconstructing label (clean, real attenuation)...")
-        label_img = reconstruct_data(clean_sino, templ_sino, umap=umap)
-
-        print(f"[alpha_{alpha_str}] reconstructing input (noisy, real attenuation)...")
-        input_img = reconstruct_data(noisy_sino, templ_sino, umap=umap)
-
-        np.save(label_path, label_img.as_array().astype(np.float32))
-        np.save(input_path, input_img.as_array().astype(np.float32))
-        print(f"[alpha_{alpha_str}] done -> {input_path}, {label_path}")
-
-    print(f"\nAll done. {args.out_dir}/alpha_*/{{input,label}}.npy ready. "
+        # ---- clean sinogram / label: deterministic, no seed dependence,
+        # compute ONCE per alpha and reuse across every seed below ----
+        if os.path.exists(label_path):
+            print(f"[skip] alpha_{alpha_str}: label.npy already exists")
+            need_clean_sino = False
+        else:
+            need_clean_sino = True
+ 
+        clean_sino = None  # lazily computed below only if needed
+ 
+        for seed in args.seeds:
+            input_path = os.path.join(out_subdir, f"input_seed{seed}.npy")
+            if os.path.exists(input_path) and not need_clean_sino:
+                print(f"[skip] alpha_{alpha_str} seed={seed}: already exists")
+                continue
+ 
+            if clean_sino is None:
+                print(f"[alpha_{alpha_str}] forward projecting clean sinogram "
+                      f"(real attenuation, seed-independent)...")
+                # alpha/umap fully determine the clean sinogram -- the noise draw
+                # (seeded via np.random.seed below) only affects the noisy branch
+                clean_sino, _ = acquire_data(activity, templ_sino, alpha=alpha, umap=umap)
+ 
+                if need_clean_sino:
+                    print(f"[alpha_{alpha_str}] reconstructing label (clean, real attenuation)...")
+                    label_img = reconstruct_data(clean_sino, templ_sino, umap=umap)
+                    np.save(label_path, label_img.as_array().astype(np.float32))
+                    need_clean_sino = False
+ 
+            if os.path.exists(input_path):
+                continue
+ 
+            # ---- noisy branch: reseed per (alpha, seed) pair for a fresh,
+            # reproducible, INDEPENDENT Poisson draw ----
+            print(f"[alpha_{alpha_str}] seed={seed}: drawing noisy sinogram...")
+            np.random.seed(seed)
+            scaled = clean_sino.as_array() * alpha
+            noisy_array = np.random.poisson(scaled).astype("float32")
+            noisy_sino = clean_sino.clone()
+            noisy_sino.fill(noisy_array)
+ 
+            print(f"[alpha_{alpha_str}] seed={seed}: reconstructing noisy input "
+                  f"(real attenuation)...")
+            input_img = reconstruct_data(noisy_sino, templ_sino, umap=umap)
+            np.save(input_path, input_img.as_array().astype(np.float32))
+            print(f"[alpha_{alpha_str}] seed={seed}: done -> {input_path}")
+ 
+    print(f"\nAll done. {args.out_dir}/alpha_*/label.npy (shared) + "
+          f"input_seed{{seed}}.npy (one per --seeds entry) ready. "
           f"For per-sphere RC quantification, point at the ORIGINAL sphere mask "
           f"files (e.g. nema/NEMA_sphere_*mm.npy) directly -- they weren't copied, "
-          f"same VOIs apply to every alpha level.")
+          f"same VOIs apply to every alpha level. Use quantify_nema_earl.py's "
+          f"--seeds option to average RC across the realizations generated here.")
 
 
 if __name__ == "__main__":
