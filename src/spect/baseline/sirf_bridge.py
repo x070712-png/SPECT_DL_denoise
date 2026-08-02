@@ -42,11 +42,25 @@ def make_uniform_umap(templ_sino: spect.AcquisitionData) -> spect.ImageData:
     umap.fill(UMAP_CONFIG["mu_cm_inv"])
     return umap
 
+def make_custom_umap(
+    templ_sino: spect.AcquisitionData,
+    att_map_array: np.ndarray,
+) -> spect.ImageData:
+    """
+    Build an attenuation ImageData from a REAL (non-uniform) attenuation
+    map array (e.g. NEMA_att_map.npy, EARL_att_map.npy, or a cropped
+    clinical att_map{1,2}.npy) instead of the uniform mu=0.12 used for the
+    virtual ellipsoid training phantoms.
+    """
+    umap = build_image_from_template(templ_sino)
+    umap.fill(att_map_array)
+    return umap
 
 def make_acquisition_model(
     templ_sino: spect.AcquisitionData,
     image: spect.ImageData,
     use_resolution_model: bool = True,
+    umap: spect.ImageData | None = None,
 ):
     """
     Build the SPECT acquisition model with attenuation and
@@ -60,8 +74,9 @@ def make_acquisition_model(
     """
     ubm = spect.SPECTUBMatrix()
 
-    # Attenuation
-    umap = make_uniform_umap(templ_sino)
+    # Attenuation -- uniform by default (unchanged), custom if given
+    if umap is None:
+        umap = make_uniform_umap(templ_sino)
     ubm.set_attenuation_image(umap)
 
     # Collimator-detector response (forward projection only)
@@ -81,6 +96,7 @@ def acquire_data(
     phantom_data: np.ndarray,
     templ_sino: spect.AcquisitionData,
     alpha: float = 1.0,
+    umap: spect.ImageData | None = None,
 ) -> tuple[spect.AcquisitionData, spect.AcquisitionData]:
     """
     Forward-project a phantom to obtain clean and noisy sinograms.
@@ -93,12 +109,12 @@ def acquire_data(
         phantom_data: numpy array (our ellipsoid phantom).
         templ_sino: template AcquisitionData defining geometry.
         alpha: count level scaling factor (Wei Miao's alpha).
-
+        umap: optional custom attenuation map.
     Returns:
         (clean_sinogram, noisy_sinogram)
     """
     image = build_image_from_template(templ_sino)
-    acq_model = make_acquisition_model(templ_sino, image, use_resolution_model=True)
+    acq_model = make_acquisition_model(templ_sino, image, use_resolution_model=True, umap=umap)
 
     # Fill template image with phantom data
     phantom = image.fill(phantom_data)
@@ -119,13 +135,14 @@ def reconstruct_data(
     sinogram: spect.AcquisitionData,
     templ_sino: spect.AcquisitionData,
     use_resolution_model_recon: bool = False,
+    umap: spect.ImageData | None = None,
 ) -> spect.ImageData:
     """
     OSEM reconstruction from a sinogram.
     No collimator model in reconstruction (avoid inverse crime).
     """
     image = build_image_from_template(templ_sino)
-    acq_model = make_acquisition_model(templ_sino, image, use_resolution_model=use_resolution_model_recon)
+    acq_model = make_acquisition_model(templ_sino, image, use_resolution_model=use_resolution_model_recon, umap=umap)
 
     obj_fun = spect.make_Poisson_loglikelihood(sinogram)
     obj_fun.set_acquisition_model(acq_model)
