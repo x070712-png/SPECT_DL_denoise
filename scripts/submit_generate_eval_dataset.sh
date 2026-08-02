@@ -45,7 +45,7 @@ else
 fi
 
 echo "Starting $DATASET at $(date)"
-python3 -u -m spect.baseline.generate_eval_phantom_dataset \
+python3 -u src/spect/baseline/generate_eval_phantom_dataset.py \
     --activity "$ACTIVITY" \
     --att_map "$ATT_MAP" \
     --out_dir "$OUT_DIR"
