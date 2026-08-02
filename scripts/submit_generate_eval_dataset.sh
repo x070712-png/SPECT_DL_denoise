@@ -12,7 +12,7 @@
 #   qsub -v DATASET=nema scripts/submit_generate_eval_dataset.sh
 #   qsub -v DATASET=earl scripts/submit_generate_eval_dataset.sh
 
-#$ -l h_rt=1:00:00
+#$ -l h_rt=6:00:00
 #$ -l mem=8G
 #$ -l tmpfs=10G
 #$ -N spect_eval_dataset
