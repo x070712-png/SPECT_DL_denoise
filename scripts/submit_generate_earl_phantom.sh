@@ -26,12 +26,15 @@ mkdir -p /home/ucapiuw/SPECT_DL_denoise/logs
 
 echo "Job started on $(hostname) at $(date)"
 
-cd /home/ucapiuw/SPECT_DL_denoise
+# Load SIRF environment (identical to submit_generate_eval_dataset.sh /
+# submit_dataset.sh / submit_generate_xcat_dataset.sh) -- this is what was
+# missing before (job 96998 failed with ModuleNotFoundError: numpy because
+# no environment was loaded at all).
+source ~/scripts/sirf_build/sirf_requirements.sh
+source ~/devel/SIRF/build/INSTALL/bin/env_sirf.sh
 
-# SIRF-side convention: absolute imports (src.spect...), plain script-path
-# invocation, PYTHONPATH=repo_root -- NOT the pytorch/module-load convention
-# used by the train/inference GPU scripts.
-export PYTHONPATH=.:$PYTHONPATH
+cd /home/ucapiuw/SPECT_DL_denoise
+export PYTHONPATH="$(pwd):${PYTHONPATH}"
 
 python3 -u src/spect/baseline/generate_earl_phantom.py \
     --out_dir data/earl_phantom \
