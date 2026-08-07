@@ -47,16 +47,16 @@ import csv
 import glob
 import os
 import re
-
+ 
 import numpy as np
-
+ 
 from spect.baseline.config import COUNT_LEVELS
-
-
+ 
+ 
 ALPHA_STR = {1.0: "1p0", 0.5: "0p5", 0.25: "0p25", 0.125: "0p125", 0.05: "0p05"}
 ALPHA_STR_TO_FLOAT = {v: k for k, v in ALPHA_STR.items()}
-
-
+ 
+ 
 def find_sphere_masks(sphere_dir, sphere_prefix):
     """Discover all {sphere_prefix}{size}mm.npy files in sphere_dir and
     return a list of (size_mm, path) sorted by size, smallest first."""
@@ -64,7 +64,7 @@ def find_sphere_masks(sphere_dir, sphere_prefix):
     paths = glob.glob(pattern)
     if not paths:
         raise FileNotFoundError(f"No sphere mask files found matching {pattern}")
-
+ 
     spheres = []
     for p in paths:
         m = re.search(r"(\d+)mm\.npy$", os.path.basename(p))
@@ -72,11 +72,11 @@ def find_sphere_masks(sphere_dir, sphere_prefix):
             print(f"[warn] could not parse sphere size from {p}, skipping")
             continue
         spheres.append((int(m.group(1)), p))
-
+ 
     spheres.sort(key=lambda x: x[0])
     return spheres
-
-
+ 
+ 
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--activity", type=str, required=True,
@@ -85,9 +85,17 @@ def parse_args():
                          "truth, same array generate_eval_phantom_dataset.py "
                          "forward-projected")
     p.add_argument("--data_dir", type=str, required=True,
-                    help="dir with alpha_{alpha_str}/{input_prefix,label}.npy "
-                         "-- e.g. data/nema_dataset (noisy input / label) or "
+                    help="dir with alpha_{alpha_str}/{input_prefix}_seed{seed}.npy -- "
+                         "e.g. data/nema_dataset (noisy input) or "
                          "logs/denoised/3d_unet_nema (CNN output)")
+    p.add_argument("--label_dir", type=str, default=None,
+                    help="dir with alpha_{alpha_str}/label.npy -- defaults to "
+                         "--data_dir (correct for the noisy-input/baseline case, "
+                         "where label.npy lives alongside input_seed*.npy). MUST "
+                         "be set explicitly to the original data/{nema,earl}_dataset "
+                         "dir when --data_dir points at a CNN-output directory, "
+                         "since run_inference_nema_earl.py never copies label.npy "
+                         "into its --out_dir.")
     p.add_argument("--sphere_dir", type=str, required=True,
                     help="dir containing the sphere mask .npy files, "
                          "e.g. nema or earl")
@@ -108,15 +116,18 @@ def parse_args():
                     help="per-alpha, per-sphere, per-seed RC output CSV")
     p.add_argument("--eps", type=float, default=1e-8)
     return p.parse_args()
-
-
+ 
+ 
 def main():
     args = parse_args()
+    label_dir = args.label_dir if args.label_dir is not None else args.data_dir
     os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
  
     activity = np.load(args.activity).astype(np.float32)
     print(f"Loaded activity map: {args.activity} "
           f"(shape={activity.shape}, min={activity.min():.4f}, max={activity.max():.4f})")
+    print(f"data_dir (measured) = {args.data_dir}")
+    print(f"label_dir (GT label) = {label_dir}")
  
     spheres = find_sphere_masks(args.sphere_dir, args.sphere_prefix)
     print(f"Found {len(spheres)} sphere masks: {[s[0] for s in spheres]} mm")
@@ -141,16 +152,18 @@ def main():
     rows = []  # per (alpha, sphere, seed) -- raw, unaveraged
     for alpha in args.alphas:
         alpha_str = ALPHA_STR.get(alpha, str(alpha).replace(".", "p"))
-        alpha_dir = os.path.join(args.data_dir, f"alpha_{alpha_str}")
+        measured_alpha_dir = os.path.join(args.data_dir, f"alpha_{alpha_str}")
+        label_alpha_dir = os.path.join(label_dir, f"alpha_{alpha_str}")
  
-        label_path = os.path.join(alpha_dir, "label.npy")
+        label_path = os.path.join(label_alpha_dir, "label.npy")
         if not os.path.exists(label_path):
-            print(f"[skip] alpha_{alpha_str}: missing {label_path}")
+            print(f"[skip] alpha_{alpha_str}: missing {label_path} "
+                  f"(check --label_dir if --data_dir points at a CNN-output dir)")
             continue
         label = np.load(label_path).astype(np.float32)
  
         for seed in args.seeds:
-            measured_path = os.path.join(alpha_dir, f"{args.input_prefix}_seed{seed}.npy")
+            measured_path = os.path.join(measured_alpha_dir, f"{args.input_prefix}_seed{seed}.npy")
             if not os.path.exists(measured_path):
                 print(f"[skip] alpha_{alpha_str} seed={seed}: missing {measured_path}")
                 continue
@@ -209,6 +222,10 @@ def main():
         for r in rows:
             writer.writerow({k: r[k] for k in fieldnames})
     print(f"\nSaved {len(rows)} rows (per alpha x sphere x seed) to {args.out_csv}")
+ 
+    if not rows:
+        print("\n[warn] 0 rows saved -- nothing to summarize. Check --data_dir/--label_dir above.")
+        return
  
     # ---- summary by alpha (averaged across spheres AND seeds) ----
     tag = "CNN output" if args.input_prefix == "denoised" else "noisy input"
