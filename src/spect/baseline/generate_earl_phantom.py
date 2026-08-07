@@ -2,54 +2,122 @@
 """
 Generates the EARL evaluation phantom's activity map, attenuation map, and
 per-sphere VOI masks using Stathis's phantomgen package
-(https://github.com/varzakis/phantomgen), and CALIBRATES the overall
-activity concentration (act_conc_MBq_ml) so that the CLEAN (noise-free)
-reconstructed image at alpha=1.0 lands on the same scale as the
-ellipsoid/XCAT training data.
+(https://github.com/varzakis/phantomgen), and JOINTLY CALIBRATES TWO
+parameters -- sphere activity concentration AND background activity
+concentration -- so that the CLEAN (noise-free) reconstructed image at
+alpha=1.0 matches the ellipsoid/XCAT training data on TWO statistics at
+once:
+  1. whole-volume mean          (target ~0.461, see NOTE below)
+  2. whole-volume max/mean ratio (target ~25.2, see NOTE below)
 
-Why calibration is needed: phantomgen's default EARL preset
-(act_conc_MBq_ml=2.0 for all 6 spheres) produces an activity map whose
-reconstructed values are ~10,000x smaller than the ellipsoid/XCAT training
-scale (mean label ~= 3.1 vs ~0.00027 for the previous NEMA/EARL data
-source). Since Poisson noise statistics depend on the
-ABSOLUTE count level (not just relative image structure), feeding the
-network data at the wrong scale means "alpha=1.0" here does not
-correspond to the same noise regime as "alpha=1.0" during training --
-the network fails even at the highest nominal count level. This script
-fixes that at the SOURCE (before forward-projection), rather than trying
-to compensate after the fact.
+BACKGROUND (why a second parameter was needed, 8/7 finding): the first
+version of this script only calibrated sphere activity, matching the
+reconstructed image's mean to a target value -- but because the CNN's
+input normalisation is `inp / inp.mean()`, matching only the overall mean
+is INSUFFICIENT: multiplying the whole activity map (spheres AND
+background) by a constant leaves the normalised image completely
+unchanged, since the scale cancels out exactly in `inp / inp.mean()`.
+What actually matters for whether the network has seen anything like this
+image before is the SHAPE of the intensity distribution, not its overall
+scale. With EARL's background hard-set to 0 (phantomgen's default,
+possibly a simplification of the true EARL/NEMA IQ protocol, which
+typically has a non-zero background at some sphere:background ratio --
+worth confirming with Stathis), essentially all signal concentrates into
+6 small spheres, giving a whole-volume max/mean ratio of ~1170 -- vs ~25
+for the ellipsoid/XCAT training data. This ~46x shape mismatch is what
+caused the CNN (both U-Net and Swin, XCAT-finetune label-alpha
+checkpoints) to systematically under-recover EARL sphere activity by a
+size-dependent ~5-10x, REGARDLESS of alpha -- i.e. NOT a noise/count-level
+problem (which label x alpha already fixed), but a distinct
+geometric/distributional domain gap.
 
-Calibration approach: activity -> forward-projection -> OSEM reconstruction
-is approximately LINEAR in activity (ignoring noise, which is not present
-in this calibration step -- we only reconstruct the CLEAN sinogram). So:
-  1. Generate the phantom at a trial act_conc_MBq_ml.
-  2. Forward-project (no noise) + reconstruct at alpha=1.0.
-  3. Measure the reconstructed image's mean value.
-  4. Rescale act_conc_MBq_ml by (target_mean / measured_mean) and repeat.
-Converges in 2-3 iterations given the near-linear relationship.
+NOTE on target statistics: measured directly from the ellipsoid training
+data's CLEAN labels (data/dataset/alpha_1p0/label_*.npy, 20-sample check,
+8/7), NOT the noisy inputs (an earlier check used noisy input_*.npy,
+giving max/mean=45.16 -- inflated relative to the clean value because max
+is an extreme-value statistic that a single Poisson realisation can push
+up substantially; label_*.npy is consistent with this script's own
+noise-free calibration reconstructions):
+  whole-volume mean       = 0.461 +/- 0.118
+  whole-volume max/mean   = 25.20 +/- 4.18
+
+CALIBRATION STRATEGY (v3, 8/7 -- replaces the nested-bisection v2
+approach, which got stuck oscillating and never converged): PROBE-AND-
+SOLVE. Sphere activity and background activity both affect the
+reconstructed mean, but only sphere activity meaningfully affects the
+max (background is far too dilute to create a new hottest voxel) --
+confirmed empirically from the v2 run's own log (background changing
+60x barely moved max: 531.25 -> 531.61). This means (mean, max) is
+approximately a LINEAR function of (sphere_conc, background_conc) over a
+reasonably local range, so:
+  1. Run 3 probe reconstructions to estimate the local Jacobian:
+     - (s0, 0)      -- baseline, s0 chosen s.t. mean(s0,0) ~= target_mean
+       (i.e. reuse the single-parameter v1/v2-style calibration first)
+     - (s1, 0)       -- perturb sphere only, to get d(mean)/d(sphere),
+       d(max)/d(sphere)
+     - (s0, b1)      -- perturb background only, to get d(mean)/d(bg),
+       d(max)/d(bg)
+  2. Solve the resulting 2x2 linear system directly for the (sphere, bg)
+     that hits (target_mean, target_mean*target_ratio) exactly (to first
+     order).
+  3. Run ONE confirmation reconstruction at the solved point; if still
+     outside tolerance, re-linearise around it and repeat (usually
+     converges in 1 extra step since the system is close to linear).
+This needs ~4-6 reconstructions total, vs up to 18 for the nested
+bisection, AND actually converges (the nested approach's outer/inner
+loops made contradictory assumptions about independence that broke down
+once background started dominating the mean -- see project log, 8/7).
+
+"max" DEFINITION FIX (8/7, caught during review of the v2 log): "max" is
+now the max over sphere-mask voxels only, NOT whole-volume np.max(). The
+v2 log showed max staying frozen at an identical value across a ~3x
+sphere_conc change, which is more consistent with the global argmax
+sitting on a reconstruction/attenuation edge artifact than on real sphere
+signal once background is non-trivial. measure_clean_stats() now prints
+both the global max (with coordinates) and the sphere-restricted max, and
+flags explicitly if the global argmax falls outside every sphere mask.
+Caveat: the target ratio (25.20) was itself measured from the ellipsoid
+data's GLOBAL max, not a VOI-restricted max -- for ellipsoids this is
+very likely equivalent in practice (the ellipsoid VOIs are the brightest
+regions by construction, background is 0.1-0.5 vs VOI 1.0-5.0), but
+hasn't been explicitly re-verified; worth a quick sanity check later if
+time allows.
+
+Usage:
+    export PYTHONPATH=<repo_root>:$PYTHONPATH
+    python3 src/spect/baseline/generate_earl_phantom.py \
+        --out_dir data/earl_phantom_v2 \
+        --target_mean 0.461 \
+        --target_max_mean_ratio 25.20
+
+Outputs (in --out_dir):
+    activity.npy            -- calibrated activity map, (128,128,128)
+    att_map.npy              -- attenuation map (cm^-1), (128,128,128)
+    EARL_sphere_{d}mm.npy    -- one binary VOI mask per sphere
+                                (d in 13,17,22,28,37,60)
 """
 
 import argparse
 import os
- 
+
 import numpy as np
- 
+
 from phantomgen import create_nema
- 
+
 from src.spect.baseline.sirf_bridge import (
     load_template_sinogram,
     acquire_data,
     reconstruct_data,
     make_custom_umap,
 )
- 
+
 VOLUME_SHAPE = (128, 128, 128)
 VOXEL_SIZE_MM = (4.42, 4.42, 4.42)  # matches CONFIG["pixel_size_mm"] in generate_ellipsoids.py
- 
+
 SPHERE_DIAMETERS_MM = [13, 17, 22, 28, 37, 60]  # order must match ANGLE_LOC below
 ANGLE_LOC = [270, 150, 30, 90, 330, 210]
- 
- 
+
+
 def build_earl_dict(sphere_act_conc, background_act_conc):
     return {
         "mu_values": {
@@ -69,8 +137,8 @@ def build_earl_dict(sphere_act_conc, background_act_conc):
             },
         },
     }
- 
- 
+
+
 def generate_activity_and_umap(sphere_act_conc, background_act_conc):
     earl_dict = build_earl_dict(sphere_act_conc, background_act_conc)
     act_vol, ctac_vol, masks = create_nema(
@@ -80,119 +148,183 @@ def generate_activity_and_umap(sphere_act_conc, background_act_conc):
         supersample=4,
     )
     return act_vol.astype(np.float32), ctac_vol.astype(np.float32), masks
- 
- 
-def measure_clean_stats(act_vol, ctac_vol):
+
+
+def measure_clean_stats(sphere_act_conc, background_act_conc):
     """Forward-project (noise-free) + OSEM reconstruct at alpha=1.0, return
-    (mean, max, max/mean) of the reconstructed image -- used to calibrate
-    BOTH the overall scale (mean) and the intensity distribution SHAPE
-    (max/mean ratio) against the ellipsoid/XCAT training data. No Poisson
-    noise involved here."""
+    (mean, max, act_vol, ctac_vol, masks) -- used to calibrate BOTH the
+    overall scale (mean) and the intensity distribution SHAPE (max) against
+    the ellipsoid/XCAT training data. No Poisson noise involved here.
+
+    IMPORTANT (8/7, bug caught by user review of the v2 log): "max" here is
+    NOT whole-volume np.max(). An earlier version used the global max, but
+    the v2 nested-bisection log showed a case (outer3: sphere_conc dropped
+    ~3x, from 184.626 to 65.1949) where the reported max stayed IDENTICAL
+    to 4 decimal places (21.9817) -- far too exact to be a real "barely
+    moved" case, and suspicious enough to suggest the global argmax voxel
+    wasn't inside a sphere at all (most likely a reconstruction/attenuation
+    -correction edge artifact at the phantom boundary, which doesn't scale
+    with sphere activity, and can end up hotter than a shrunk-down sphere
+    peak once background gets large). If that's what's happening, the
+    global max is not actually tracking sphere signal, which would corrupt
+    both the old bisection AND this script's own Jacobian probes.
+    Fix: restrict "max" to voxels inside the union of the 6 sphere masks
+    (the only physically meaningful definition of "peak sphere signal"),
+    and cross-check against the global max + its coordinates so a mismatch
+    is visible in the log rather than silently corrupting the calibration."""
+    act_vol, ctac_vol, masks = generate_activity_and_umap(sphere_act_conc, background_act_conc)
     templ_sino = load_template_sinogram()
     umap = make_custom_umap(templ_sino, ctac_vol)
     clean_sino, _ = acquire_data(act_vol, templ_sino, alpha=1.0, umap=umap)
     label_img = reconstruct_data(clean_sino, templ_sino, umap=umap)
     arr = label_img.as_array()
     mean = float(arr.mean())
-    max_ = float(arr.max())
-    ratio = max_ / mean if mean > 0 else float("inf")
-    return mean, max_, ratio
- 
- 
-def calibrate_sphere_for_mean(background_act_conc, target_mean, init_sphere_act_conc,
-                                max_iters=3, tol=0.05):
-    """INNER loop: for a FIXED background level, ratio-scale sphere activity
-    until the whole-volume mean hits target_mean (same style as v1's
-    single-parameter calibration)."""
+
+    global_max = float(arr.max())
+    global_argmax_coords = np.unravel_index(np.argmax(arr), arr.shape)
+
+    sphere_keys = [f"sphere_{i}" for i in range(1, 7)]
+    combined_mask = None
+    for k in sphere_keys:
+        if k in masks:
+            m = masks[k].astype(bool)
+            combined_mask = m if combined_mask is None else (combined_mask | m)
+    if combined_mask is None or not combined_mask.any():
+        raise RuntimeError(f"No sphere mask voxels found (keys checked: {sphere_keys}, "
+                            f"available: {list(masks.keys())}) -- cannot compute sphere-"
+                            f"restricted max.")
+
+    sphere_vals = arr[combined_mask]
+    max_ = float(sphere_vals.max())
+    sphere_argmax_flat = np.argmax(np.where(combined_mask, arr, -np.inf))
+    sphere_argmax_coords = np.unravel_index(sphere_argmax_flat, arr.shape)
+
+    in_sphere = bool(combined_mask[global_argmax_coords])
+    flag = "" if in_sphere else "  [WARN] global max is OUTSIDE all sphere masks -- likely an edge/reconstruction artifact, not sphere signal"
+    print(f"    probe: sphere={sphere_act_conc:.6g} bg={background_act_conc:.6g} "
+          f"-> mean={mean:.4f} sphere_max={max_:.4f} ratio={(max_/mean if mean>0 else float('inf')):.2f} "
+          f"(global_max={global_max:.4f} @ {global_argmax_coords}, sphere_argmax @ {sphere_argmax_coords}){flag}")
+    return mean, max_, act_vol, ctac_vol, masks
+
+
+def calibrate_sphere_only(target_mean, init_sphere_act_conc=2.0, max_iters=4, tol=0.03):
+    """Single-parameter ratio-scaling calibration (background fixed at 0)
+    -- same style as v1, used here just to get a sensible baseline probe
+    point s0 where mean(s0, 0) ~= target_mean before estimating the
+    Jacobian."""
     s = init_sphere_act_conc
-    mean = max_ = ratio = None
-    act_vol = ctac_vol = masks = None
+    mean = max_ = None
     for i in range(max_iters):
-        act_vol, ctac_vol, masks = generate_activity_and_umap(s, background_act_conc)
-        mean, max_, ratio = measure_clean_stats(act_vol, ctac_vol)
-        print(f"    [inner {i}] sphere_conc={s:.6g} (bg={background_act_conc:.6g}) -> "
-              f"mean={mean:.4f} (target {target_mean}) max={max_:.4f} ratio={ratio:.2f}")
+        mean, max_, act_vol, ctac_vol, masks = measure_clean_stats(s, 0.0)
         if mean <= 0:
             raise RuntimeError("Reconstructed mean is <= 0 -- check activity/umap units.")
         r = target_mean / mean
         if abs(r - 1.0) < tol:
             break
         s *= r
-    return s, act_vol, ctac_vol, masks, mean, max_, ratio
- 
- 
+    return s, mean, max_
+
+
+def solve_joint(target_mean, target_ratio, s0, mean0, max0, s1, mean_s1, max_s1,
+                  b1, mean_b1, max_b1):
+    """Given 3 probe points -- baseline (s0,0), sphere-perturbed (s1,0),
+    background-perturbed (s0,b1) -- fit a local linear model and solve
+    directly for the (sphere, background) that hits (target_mean,
+    target_max) to first order."""
+    target_max = target_mean * target_ratio
+
+    ms = (mean_s1 - mean0) / (s1 - s0)   # d(mean)/d(sphere)
+    xs = (max_s1 - max0) / (s1 - s0)     # d(max)/d(sphere)
+    mb = (mean_b1 - mean0) / b1          # d(mean)/d(background)
+    xb = (max_b1 - max0) / b1            # d(max)/d(background)
+
+    A = np.array([[ms, mb], [xs, xb]])
+    rhs = np.array([target_mean - mean0, target_max - max0])
+    det = np.linalg.det(A)
+    if abs(det) < 1e-12:
+        raise RuntimeError(f"Jacobian is singular (det={det:.3e}) -- probes were not "
+                            f"informative enough to solve for both parameters.")
+    ds, b = np.linalg.solve(A, rhs)
+    s = s0 + ds
+    print(f"  Linear model: d(mean)/d(sphere)={ms:.3e}  d(max)/d(sphere)={xs:.4f}")
+    print(f"                d(mean)/d(bg)={mb:.4f}      d(max)/d(bg)={xb:.4f}")
+    print(f"  Solved: sphere={s:.6g}  background={b:.6g}  (target_max={target_max:.4f})")
+    return max(s, 1e-6), max(b, 0.0)  # clip to physically valid (non-negative) range
+
+
 def calibrate_joint(target_mean, target_ratio, init_sphere_act_conc=2.0,
-                      max_outer=6, ratio_tol=0.15, inner_max_iters=3, inner_tol=0.05):
-    """OUTER loop: bisection-search background_act_conc to hit
-    target_ratio, re-running the INNER mean-calibration at each trial
-    background level (since sphere activity has to be re-tuned every time
-    background changes, to keep the mean on target)."""
-    bg_lo, bg_hi = 0.0, None
-    bg = 0.0
-    s = init_sphere_act_conc
-    best = None
-    for outer in range(max_outer):
-        s, act_vol, ctac_vol, masks, mean, max_, ratio = calibrate_sphere_for_mean(
-            bg, target_mean, s, max_iters=inner_max_iters, tol=inner_tol)
-        print(f"  [outer {outer}] background_act_conc={bg:.6g} -> "
-              f"mean={mean:.4f} (target {target_mean})  "
-              f"max/mean={ratio:.2f} (target {target_ratio})")
-        best = (bg, s, act_vol, ctac_vol, masks, mean, max_, ratio)
- 
-        rel_err = abs(ratio - target_ratio) / target_ratio
-        if rel_err < ratio_tol:
-            print(f"  [outer] converged: max/mean ratio within "
-                  f"{ratio_tol*100:.0f}% of target after {outer+1} outer iteration(s).")
-            break
- 
-        if ratio > target_ratio:
-            # too concentrated (background too weak) -> raise background
-            bg_lo = bg
-            bg = (bg * 2) if bg > 0 else (s / 100.0)  # first nonzero guess: 1% of sphere conc
-            if bg_hi is not None:
-                bg = (bg_lo + bg_hi) / 2
-        else:
-            # background too strong (ratio undershot) -> lower background
-            bg_hi = bg
-            bg = (bg_lo + bg_hi) / 2 if bg_lo is not None else bg / 2
-    else:
-        print(f"  [outer] stopped after {max_outer} outer iterations without full "
-              f"convergence (last rel_err={rel_err:.2%}) -- using last generated map anyway.")
-    return best
- 
- 
+                      sphere_probe_factor=1.5, bg_probe_frac_of_sphere=0.01,
+                      max_refine=2, mean_tol=0.05, ratio_tol=0.15):
+    print("Step 1/3: single-parameter baseline (background=0)...")
+    s0, mean0, max0 = calibrate_sphere_only(target_mean, init_sphere_act_conc)
+
+    for refine in range(max_refine + 1):
+        print(f"\nStep 2/3 (refine {refine}): probing local Jacobian around "
+              f"sphere={s0:.6g}, background={0 if refine == 0 else 'prev solved value'}...")
+        s1 = s0 * sphere_probe_factor
+        b1 = max(s0 * bg_probe_frac_of_sphere, 1e-3)
+
+        mean_s1, max_s1, _, _, _ = measure_clean_stats(s1, 0.0)
+        mean_b1, max_b1, _, _, _ = measure_clean_stats(s0, b1)
+
+        print("Step 3/3: solving linear system for both targets...")
+        s_sol, b_sol = solve_joint(target_mean, target_ratio,
+                                     s0, mean0, max0, s1, mean_s1, max_s1,
+                                     b1, mean_b1, max_b1)
+
+        mean_final, max_final, act_vol, ctac_vol, masks = measure_clean_stats(s_sol, b_sol)
+        ratio_final = max_final / mean_final if mean_final > 0 else float("inf")
+        mean_rel_err = abs(mean_final - target_mean) / target_mean
+        ratio_rel_err = abs(ratio_final - target_ratio) / target_ratio
+        print(f"  Confirmation: sphere={s_sol:.6g} bg={b_sol:.6g} -> "
+              f"mean={mean_final:.4f} (rel_err={mean_rel_err:.1%}, tol={mean_tol:.0%})  "
+              f"ratio={ratio_final:.2f} (rel_err={ratio_rel_err:.1%}, tol={ratio_tol:.0%})")
+
+        if mean_rel_err < mean_tol and ratio_rel_err < ratio_tol:
+            print(f"  Converged after {refine + 1} refinement round(s).")
+            return s_sol, b_sol, act_vol, ctac_vol, masks, mean_final, max_final, ratio_final
+
+        # re-linearise around the new solved point for another round
+        s0, mean0, max0 = s_sol, mean_final, max_final
+
+    print(f"  [warn] did not fully converge after {max_refine + 1} refinement round(s) -- "
+          f"using last solved point anyway (mean_rel_err={mean_rel_err:.1%}, "
+          f"ratio_rel_err={ratio_rel_err:.1%}).")
+    return s_sol, b_sol, act_vol, ctac_vol, masks, mean_final, max_final, ratio_final
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--out_dir", type=str, required=True)
     p.add_argument("--target_mean", type=float, default=0.461,
                     help="target WHOLE-VOLUME mean of the clean reconstructed image at "
-                         "alpha=1.0 -- measured from ellipsoid training data's CLEAN "
-                         "labels (data/dataset/alpha_1p0/label_*.npy), NOT the per-VOI "
-                         "'true_val_label' figure used by quantify_noisy_baseline.py, "
-                         "and NOT the noisy input_*.npy (see docstring note)")
+                         "alpha=1.0 -- measured from ellipsoid CLEAN labels "
+                         "(data/dataset/alpha_1p0/label_*.npy)")
     p.add_argument("--target_max_mean_ratio", type=float, default=25.20,
-                    help="target whole-volume max/mean ratio -- also measured from "
-                         "ellipsoid CLEAN labels (not noisy input, which inflates max "
-                         "via single-realisation Poisson spikes), controls background "
-                         "activity")
+                    help="target whole-volume max/mean ratio -- also from ellipsoid "
+                         "CLEAN labels, controls background activity")
     p.add_argument("--init_sphere_act_conc", type=float, default=2.0)
-    p.add_argument("--max_outer", type=int, default=6)
+    p.add_argument("--max_refine", type=int, default=2,
+                    help="extra probe-and-solve rounds if the first solve doesn't hit "
+                         "tolerance (the system is only locally linear, so large jumps "
+                         "may need 1-2 re-linearisations)")
+    p.add_argument("--mean_tol", type=float, default=0.05)
     p.add_argument("--ratio_tol", type=float, default=0.15,
-                    help="relative tolerance for max/mean ratio convergence -- default "
-                         "15%% since the ellipsoid target itself has ~23%% relative "
-                         "spread (10.5/45.16) across samples")
+                    help="relative tolerance for max/mean ratio -- default 15%% since "
+                         "the ellipsoid target itself has ~17%% relative spread "
+                         "(4.18/25.20) across samples")
     args = p.parse_args()
- 
+
     os.makedirs(args.out_dir, exist_ok=True)
- 
-    bg, s, act_vol, ctac_vol, masks, mean, max_, ratio = calibrate_joint(
+
+    s, b, act_vol, ctac_vol, masks, mean, max_, ratio = calibrate_joint(
         args.target_mean, args.target_max_mean_ratio,
         init_sphere_act_conc=args.init_sphere_act_conc,
-        max_outer=args.max_outer, ratio_tol=args.ratio_tol)
- 
+        max_refine=args.max_refine, mean_tol=args.mean_tol, ratio_tol=args.ratio_tol)
+
     np.save(os.path.join(args.out_dir, "activity.npy"), act_vol)
     np.save(os.path.join(args.out_dir, "att_map.npy"), ctac_vol)
- 
+
     for i, d in enumerate(SPHERE_DIAMETERS_MM, start=1):
         key = f"sphere_{i}"
         if key not in masks:
@@ -201,9 +333,9 @@ def main():
         mask = masks[key].astype(np.uint8)
         np.save(os.path.join(args.out_dir, f"EARL_sphere_{d}mm.npy"), mask)
         print(f"  saved EARL_sphere_{d}mm.npy from mask key '{key}' (n_voxels={mask.sum()})")
- 
+
     print(f"\nFinal sphere_act_conc_MBq_ml = {s:.6g}")
-    print(f"Final background_act_conc_MBq_ml = {bg:.6g}")
+    print(f"Final background_act_conc_MBq_ml = {b:.6g}")
     print(f"Final reconstructed mean = {mean:.4f} (target {args.target_mean})")
     print(f"Final reconstructed max/mean ratio = {ratio:.2f} (target {args.target_max_mean_ratio})")
     print(f"Saved activity.npy, att_map.npy, and sphere masks to {args.out_dir}")
@@ -213,8 +345,7 @@ def main():
     print(f"    --att_map {args.out_dir}/att_map.npy \\")
     print(f"    --out_dir data/earl_dataset_v2 \\")
     print(f"    --seeds 42 43 44 45 46 47 48 49 50 51")
- 
- 
+
+
 if __name__ == "__main__":
     main()
- 

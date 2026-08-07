@@ -3,15 +3,19 @@
 #
 # Joint 2-parameter calibration (sphere activity + background activity) of
 # the EARL phantom, fixing the max/mean-ratio domain-gap found on 8/7 (see
-# generate_earl_phantom.py docstring for full explanation). Up to
-# max_outer(6) x inner_max_iters(3) = 18 forward-projection+OSEM
-# reconstructions worst case -- more compute than the single-parameter v1
-# calibration (job 99416, 2 iterations), so h_rt bumped up accordingly.
+# generate_earl_phantom.py docstring for full explanation).
+#
+# v3 (8/7, second revision): replaced the nested-bisection search (which
+# got stuck oscillating and never converged -- job 109376, stopped at
+# mean=0.807/target 0.461, ratio=17.02/target 25.2) with a probe-and-solve
+# linear approach: ~4-6 reconstructions total (down from up to 18), and
+# actually converges since it doesn't assume sphere/background act
+# independently on mean (they don't, once background dominates).
 #
 # Submit with: qsub scripts/submit_generate_earl_phantom_v2.sh
 # Watch with:  qstat -u $(whoami)
 
-#$ -l h_rt=8:00:00
+#$ -l h_rt=3:00:00
 #$ -l mem=16G
 #$ -l tmpfs=10G
 #$ -N spect_earl_phantom_v2
@@ -37,7 +41,8 @@ python3 -u src/spect/baseline/generate_earl_phantom.py \
     --target_mean 0.461 \
     --target_max_mean_ratio 25.20 \
     --init_sphere_act_conc 2.0 \
-    --max_outer 6 \
+    --max_refine 2 \
+    --mean_tol 0.05 \
     --ratio_tol 0.15
 
 echo "Job finished at $(date)"
