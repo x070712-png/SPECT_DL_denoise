@@ -84,19 +84,32 @@ def main():
     label_s = central_slice(label, args.slice_axis)
     inp_s = central_slice(inp, args.slice_axis)
 
-    vmax = label_s.max() * args.vmax_headroom
+    # NOTE: label and input are shown on SEPARATE intensity scales, each
+    # scaled to its own max -- NOT a shared scale like
+    # visualize_predictions.py's CNN-output-vs-label comparison figures.
+    # A shared scale would be appropriate for comparing absolute accuracy,
+    # but for a "what does the raw data look like" dataset-illustration
+    # figure it's misleading: at alpha=0.05 the reconstructed activity is
+    # genuinely ~20x lower in absolute units than the alpha=1.0 label (the
+    # sinogram counts were scaled by alpha before Poisson sampling), so a
+    # shared scale calibrated to the label crushes the noisy panel to
+    # near-black even where it has real, visible structure. Matches how
+    # Miao's Figure 2.2 was very likely rendered (each panel auto-scaled
+    # to its own range, not pinned to a clean-image scale).
+    label_vmax = label_s.max() * args.vmax_headroom
+    input_vmax = inp_s.max() * args.vmax_headroom
     axis_name = {0: "axial", 1: "coronal", 2: "sagittal"}[args.slice_axis]
 
-    fig, axes = plt.subplots(1, 2, figsize=(9, 4.5))
-    axes[0].imshow(label_s, cmap="hot", vmin=0, vmax=vmax)
+    fig, axes = plt.subplots(1, 2, figsize=(9.5, 4.5))
+    im0 = axes[0].imshow(label_s, cmap="hot", vmin=0, vmax=label_vmax)
     axes[0].set_title("Clean label\n(noise-free)", fontsize=11)
     axes[0].axis("off")
+    fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04, label="reconstructed activity")
 
-    im = axes[1].imshow(inp_s, cmap="hot", vmin=0, vmax=vmax)
+    im1 = axes[1].imshow(inp_s, cmap="hot", vmin=0, vmax=input_vmax)
     axes[1].set_title(f"Noisy input\n(alpha = {alpha_val})", fontsize=11)
     axes[1].axis("off")
-
-    fig.colorbar(im, ax=axes.tolist(), fraction=0.025, pad=0.02, label="reconstructed activity")
+    fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04, label="reconstructed activity")
     fig.suptitle(f"XCAT Phantom {args.phantom_idx:04d} -- central {axis_name} slice, "
                  f"count level alpha = {alpha_val}", fontsize=13)
     fig.savefig(args.out_path, dpi=150, bbox_inches="tight")
