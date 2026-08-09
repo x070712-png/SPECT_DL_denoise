@@ -98,20 +98,27 @@ def main():
     vmax = label_s.max() * args.vmax_headroom
     axis_name = {0: "axial", 1: "coronal", 2: "sagittal"}[args.slice_axis]
 
-    n_cols = 1 + len(ALPHAS_ORDERED)
-    fig, axes = plt.subplots(1, n_cols, figsize=(4 * n_cols, 4.5))
+    # 2 rows x 3 cols: row 1 = label, alpha=1.0, alpha=0.5 -- row 2 =
+    # alpha=0.25, alpha=0.125, alpha=0.05
+    panels = [
+        ("Clean label\n(alpha = 1.0, noise-free)", label_s),
+        ("Noisy input\n(alpha = 1.0)", inputs_s[ALPHA_STR[1.0]]),
+        ("Noisy input\n(alpha = 0.5)", inputs_s[ALPHA_STR[0.5]]),
+        ("Noisy input\n(alpha = 0.25)", inputs_s[ALPHA_STR[0.25]]),
+        ("Noisy input\n(alpha = 0.125)", inputs_s[ALPHA_STR[0.125]]),
+        ("Noisy input\n(alpha = 0.05)", inputs_s[ALPHA_STR[0.05]]),
+    ]
 
-    im = axes[0].imshow(label_s, cmap="hot", vmin=0, vmax=vmax)
-    axes[0].set_title("Clean label\n(alpha = 1.0, noise-free)", fontsize=11)
-    axes[0].axis("off")
+    fig, axes = plt.subplots(2, 3, figsize=(12, 8.5))
+    axes_flat = axes.flatten()
 
-    for i, alpha in enumerate(ALPHAS_ORDERED, start=1):
-        alpha_str = ALPHA_STR[alpha]
-        axes[i].imshow(inputs_s[alpha_str], cmap="hot", vmin=0, vmax=vmax)
-        axes[i].set_title(f"Noisy input\n(alpha = {alpha})", fontsize=11)
-        axes[i].axis("off")
+    im = None
+    for ax, (title, img) in zip(axes_flat, panels):
+        im = ax.imshow(img, cmap="hot", vmin=0, vmax=vmax)
+        ax.set_title(title, fontsize=11)
+        ax.axis("off")
 
-    fig.colorbar(im, ax=axes.tolist(), fraction=0.015, pad=0.01, label="reconstructed activity")
+    fig.colorbar(im, ax=axes.tolist(), fraction=0.025, pad=0.02, label="reconstructed activity")
     fig.suptitle(f"Synthetic Ellipsoidal Phantom {args.phantom_idx:04d} -- "
                  f"central {axis_name} slice, shared intensity scale", fontsize=13)
     fig.savefig(args.out_path, dpi=150, bbox_inches="tight")
