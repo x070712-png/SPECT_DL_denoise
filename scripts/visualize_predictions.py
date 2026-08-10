@@ -254,14 +254,17 @@ def main():
             inp_s = central_slice(inp, args.slice_axis)
             lbl_s = central_slice(lbl, args.slice_axis)
             den_s = central_slice(den, args.slice_axis)
-            # 99th percentile, not true max -- same reasoning as the diff
-            # scales below: at low alpha, dividing the noisy input by alpha
-            # amplifies isolated Poisson-noise spikes enormously (a single
-            # raw value of ~60 becomes ~1200 at alpha=0.05), and a shared
-            # scale pinned to that one pixel crushes the real anatomical
-            # structure (which tops out around 15-40 in these XCAT/ellipsoid
-            # phantoms) to near-black everywhere else.
-            all_intensity_vals.append(np.percentile(inp_s, 99))
+            # Intensity vmax is set from label + model output ONLY, not the
+            # noisy input. At low alpha, dividing the noisy input by alpha
+            # amplifies Poisson noise across a wide swath of pixels (not
+            # just one outlier), so even a 99th percentile of the input
+            # itself stays inflated (~106, still well above the ~20-40
+            # anatomical range visible in label/output). Label and model
+            # output are smooth/noise-free by comparison, so they give a
+            # scale that actually reflects real activity, not noise -- the
+            # noisy input panel is still drawn against this same shared
+            # scale, it just saturates (white) on its noisiest pixels,
+            # which is an accurate and expected way to show "this is noisy".
             all_intensity_vals.append(np.percentile(lbl_s, 99))
             all_intensity_vals.append(np.percentile(den_s, 99))
             # 99th percentile, not true max -- the true per-pixel max is
@@ -385,4 +388,3 @@ def main():
  
 if __name__ == "__main__":
     main()
- 
