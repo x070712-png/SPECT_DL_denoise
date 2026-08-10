@@ -35,17 +35,23 @@ a separate methodology check (Chris's question about how the mask is
 built/reused), not part of this whole-image background-bias comparison;
 keep it as a separate, one-off figure if still needed.
 
-Run ONCE PER CHECKPOINT (see CHECKPOINTS config below -- edit paths if
-yours differ), or all four in one go:
-
+Run ONCE PER CHECKPOINT (see CHECKPOINTS_BY_DATASET config below -- edit
+paths if yours differ), or all four in one go:
+ 
     export PYTHONPATH=src:$PYTHONPATH
     python3 scripts/visualize_predictions.py --checkpoint_key unet_old
     python3 scripts/visualize_predictions.py --checkpoint_key unet_label_alpha
     python3 scripts/visualize_predictions.py --checkpoint_key swin_old
     python3 scripts/visualize_predictions.py --checkpoint_key swin_label_alpha
     python3 scripts/visualize_predictions.py --checkpoint_key all   # 4 PNGs, one global scale
+ 
+Also supports the XCAT dataset/checkpoints (same 5-column layout, same
+old-method vs label-alpha comparison, just a different --dataset and
+--data_dir) via --dataset xcat:
+ 
+    python3 scripts/visualize_predictions.py --dataset xcat --checkpoint_key all
 """
-
+ 
 import argparse
 import os
  
@@ -92,20 +98,38 @@ ALPHAS_ORDERED = [1.0, 0.5, 0.25, 0.125, 0.05]
 # the noisy input by alpha for display (both its own panel and the
 # pre-CNN diff) removes this, applied uniformly to every checkpoint/row
 # regardless of alpha_correction.
-CHECKPOINTS = {
-    "unet_old":          {"label": "U-Net (old method)",        "denoised_dir": "logs/denoised/3d_unet",                     "alpha_correction": False},
-    "unet_label_alpha":  {"label": "U-Net (label x alpha)",      "denoised_dir": "logs/denoised/3d_unet_label_alpha",         "alpha_correction": True},
-    "swin_old":          {"label": "Swin UNETR (old method)",    "denoised_dir": "logs/denoised/swin_unetr",                  "alpha_correction": False},
-    "swin_label_alpha":  {"label": "Swin UNETR (label x alpha)", "denoised_dir": "logs/denoised/swin_unetr_label_alpha",      "alpha_correction": True},
+#
+# Keyed by --dataset. Both sub-dicts use the SAME four checkpoint_key
+# names (unet_old / unet_label_alpha / swin_old / swin_label_alpha) so
+# --checkpoint_key works identically regardless of --dataset -- only the
+# label text and denoised_dir paths differ. XCAT paths confirmed against
+# scripts/submit_inference_dump_{unet,swin}_xcat{,_labelalpha}.sh.
+CHECKPOINTS_BY_DATASET = {
+    "ellipsoid": {
+        "unet_old":          {"label": "U-Net (old method)",        "denoised_dir": "logs/denoised/3d_unet",                     "alpha_correction": False},
+        "unet_label_alpha":  {"label": "U-Net (label x alpha)",      "denoised_dir": "logs/denoised/3d_unet_label_alpha",         "alpha_correction": True},
+        "swin_old":          {"label": "Swin UNETR (old method)",    "denoised_dir": "logs/denoised/swin_unetr",                  "alpha_correction": False},
+        "swin_label_alpha":  {"label": "Swin UNETR (label x alpha)", "denoised_dir": "logs/denoised/swin_unetr_label_alpha",      "alpha_correction": True},
+    },
+    "xcat": {
+        "unet_old":          {"label": "U-Net (XCAT finetune, old method)",        "denoised_dir": "logs/denoised/3d_unet_xcat_finetune",                    "alpha_correction": False},
+        "unet_label_alpha":  {"label": "U-Net (XCAT finetune, label x alpha)",      "denoised_dir": "logs/denoised/3d_unet_xcat_finetune_label_alpha",        "alpha_correction": True},
+        "swin_old":          {"label": "Swin UNETR (XCAT finetune, old method)",    "denoised_dir": "logs/denoised/swin_unetr_xcat_finetune",                 "alpha_correction": False},
+        "swin_label_alpha":  {"label": "Swin UNETR (XCAT finetune, label x alpha)", "denoised_dir": "logs/denoised/swin_unetr_xcat_finetune_label_alpha",     "alpha_correction": True},
+    },
 }
+DATA_DIR_BY_DATASET = {"ellipsoid": "data/dataset", "xcat": "data/xcat_dataset"}
  
  
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--data_dir", type=str, default="data/dataset",
-                    help="root dir with alpha_*/{input,label}_NNNN.npy (noisy input + GT label)")
+    p.add_argument("--dataset", type=str, default="ellipsoid", choices=["ellipsoid", "xcat"],
+                    help="which CHECKPOINTS_BY_DATASET / default --data_dir to use")
+    p.add_argument("--data_dir", type=str, default=None,
+                    help="root dir with alpha_*/{input,label}_NNNN.npy (noisy input + GT label) "
+                         "-- defaults to DATA_DIR_BY_DATASET[--dataset] if not given")
     p.add_argument("--checkpoint_key", type=str, default="all",
-                    choices=list(CHECKPOINTS.keys()) + ["all"])
+                    choices=list(CHECKPOINTS_BY_DATASET["ellipsoid"].keys()) + ["all"])
     p.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])
     p.add_argument("--out_dir", type=str, default="logs/qualitative")
     p.add_argument("--slice_axis", type=int, default=0, help="0=axial, 1=coronal, 2=sagittal")
@@ -167,6 +191,11 @@ def load_triplet(data_dir, denoised_dir, phantom_idx, alpha_str):
 def main():
     args = parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
+ 
+    CHECKPOINTS = CHECKPOINTS_BY_DATASET[args.dataset]
+    if args.data_dir is None:
+        args.data_dir = DATA_DIR_BY_DATASET[args.dataset]
+    print(f"Dataset = {args.dataset}, data_dir = {args.data_dir}")
  
     keys = list(CHECKPOINTS.keys()) if args.checkpoint_key == "all" else [args.checkpoint_key]
  
@@ -330,7 +359,7 @@ def main():
                       f"(fewer total counts go into OSEM at low alpha); "
                       f"pre-CNN and post-CNN diffs each on their own shared "
                       f"scale (see colorbars)", fontsize=12)
-        out_path = os.path.join(args.out_dir, f"qualitative_{key}_{args.split}.png")
+        out_path = os.path.join(args.out_dir, f"qualitative_{key}_{args.dataset}_{args.split}.png")
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved {out_path}")
