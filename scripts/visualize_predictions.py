@@ -111,7 +111,14 @@ def parse_args():
     p.add_argument("--slice_axis", type=int, default=0, help="0=axial, 1=coronal, 2=sagittal")
     p.add_argument("--vmax_headroom", type=float, default=1.2,
                     help="multiply the global label max by this factor for the shared "
-                         "intensity colour scale (Kris, 7/15 meeting)")
+                         "intensity colour scale (Kris, 7/15 meeting) -- ignored if "
+                         "--intensity_vmax_override is given")
+    p.add_argument("--intensity_vmax_override", type=float, default=None,
+                    help="if given, use this directly as the shared intensity vmax "
+                         "instead of computing it from data. Useful when the "
+                         "auto-computed max is set by one unusually bright "
+                         "representative phantom, making everything else look too "
+                         "dark/near-black under the shared scale.")
     return p.parse_args()
  
  
@@ -243,7 +250,10 @@ def main():
     # label-alpha and U-Net vs Swin remain apples-to-apples. Just don't
     # shrink this further than "make the post-CNN panel legible" -- that
     # would start exaggerating residual error rather than revealing it.
-    global_vmax = max(all_intensity_vals) * args.vmax_headroom
+    if args.intensity_vmax_override is not None:
+        global_vmax = args.intensity_vmax_override
+    else:
+        global_vmax = max(all_intensity_vals) * args.vmax_headroom
     global_diff_pre_absmax = max(all_diff_pre_vals)
     global_diff_post_absmax = max(all_diff_post_vals)
     print(f"Global intensity vmax = {global_vmax:.3f}")
