@@ -154,8 +154,14 @@ def main():
             all_intensity_vals.append(inp_s.max())
             all_intensity_vals.append(lbl_s.max())
             all_intensity_vals.append(den_s.max())
-            all_diff_post_vals.append(np.abs(den_s - lbl_s).max())
-            all_diff_pre_vals.append(np.abs(inp_s - lbl_s).max())
+            # 99th percentile, not true max -- see visualize_predictions.py's
+            # matching comment: the true per-pixel max is driven by single
+            # isolated Poisson-noise spikes (worse at low alpha, since
+            # dividing the noisy input by alpha amplifies exactly this kind
+            # of outlier), which would otherwise crush every other row to
+            # near-invisible under one shared scale.
+            all_diff_post_vals.append(np.percentile(np.abs(den_s - lbl_s), 99))
+            all_diff_pre_vals.append(np.percentile(np.abs(inp_s - lbl_s), 99))
  
     if not all_intensity_vals:
         raise RuntimeError("Nothing loaded -- check EARL_CHECKPOINTS paths and that "

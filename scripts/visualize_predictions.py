@@ -212,8 +212,16 @@ def main():
             all_intensity_vals.append(inp_s.max())
             all_intensity_vals.append(lbl_s.max())
             all_intensity_vals.append(den_s.max())
-            all_diff_post_vals.append(np.abs(den_s - lbl_s).max())
-            all_diff_pre_vals.append(np.abs(inp_s - lbl_s).max())
+            # 99th percentile, not true max -- the true per-pixel max is
+            # driven by single isolated Poisson-noise spikes (especially
+            # after dividing the noisy input by alpha at low alpha, which
+            # amplifies exactly this kind of outlier), and a shared scale
+            # pinned to that single pixel crushes every other row/panel to
+            # near-invisible. Percentile keeps ONE shared scale across all
+            # rows (still comparable across alphas/checkpoints per Cate's
+            # 7/23 request) without letting outliers dominate it.
+            all_diff_post_vals.append(np.percentile(np.abs(den_s - lbl_s), 99))
+            all_diff_pre_vals.append(np.percentile(np.abs(inp_s - lbl_s), 99))
  
     if not all_intensity_vals:
         raise RuntimeError("Nothing loaded -- check --data_dir / CHECKPOINTS paths and that "
@@ -320,4 +328,3 @@ def main():
  
 if __name__ == "__main__":
     main()
- 
