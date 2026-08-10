@@ -77,6 +77,21 @@ ALPHAS_ORDERED = [1.0, 0.5, 0.25, 0.125, 0.05]
 # True here for label-alpha checkpoints so this script divides by alpha
 # right after loading, before computing anything else -- old-method
 # checkpoints are untouched (already alpha-independent by design).
+#
+# NOISY-INPUT alpha-division (Kris, 8/3 meeting -- applies to EVERY
+# checkpoint below, NOT gated by alpha_correction): the raw noisy
+# reconstruction is also naturally ~alpha x dimmer in absolute units at
+# low alpha, independent of any training-target scaling -- the noisy
+# sinogram is Poisson-thinned by alpha BEFORE reconstruction (see
+# sirf_bridge.py's acquire_data()), so fewer total counts go into OSEM
+# and the reconstructed image's overall intensity scales down roughly
+# proportionally. The label is always full-scale (clean, alpha-
+# independent), so comparing it against a raw noisy input that's ~alpha x
+# dimmer makes the pre-CNN diff panel balloon at low alpha for a reason
+# that has nothing to do with noise -- just a scale mismatch. Dividing
+# the noisy input by alpha for display (both its own panel and the
+# pre-CNN diff) removes this, applied uniformly to every checkpoint/row
+# regardless of alpha_correction.
 CHECKPOINTS = {
     "unet_old":          {"label": "U-Net (old method)",        "denoised_dir": "logs/denoised/3d_unet",                     "alpha_correction": False},
     "unet_label_alpha":  {"label": "U-Net (label x alpha)",      "denoised_dir": "logs/denoised/3d_unet_label_alpha",         "alpha_correction": True},
@@ -179,6 +194,12 @@ def main():
                 continue
  
             inp, lbl, den = data
+            # raw noisy reconstruction is naturally ~alpha x dimmer (fewer
+            # total counts went into OSEM) -- divide by alpha for display,
+            # uniformly across EVERY checkpoint (not gated by
+            # alpha_correction below), so it is comparable to the always-
+            # full-scale label (Kris, 8/3 meeting; see CHECKPOINTS comment)
+            inp = inp / alpha
             if CHECKPOINTS[key]["alpha_correction"]:
                 # undo the label*alpha training-target scaling baked into this
                 # checkpoint's raw output -- see CHECKPOINTS comment above
@@ -225,7 +246,7 @@ def main():
     # Pass 2: plot, one figure per checkpoint, one row per alpha, using
     # the global scales computed above throughout.
     # ------------------------------------------------------------------
-    col_titles = ["Noisy input", "Noisy - label\n(pre-CNN baseline)",
+    col_titles = ["Noisy input\n(/ alpha)", "(Noisy/alpha) - label\n(pre-CNN baseline)",
                   "Model output", "Output - label\n(post-CNN)", "Ground truth (label)"]
  
     for key in keys:
@@ -286,6 +307,9 @@ def main():
  
         fig.suptitle(f"{CHECKPOINTS[key]['label']} -- {args.split} split, "
                       f"shared intensity scale across all rows/checkpoints; "
+                      f"noisy input shown divided by alpha for display, so it "
+                      f"is on the same scale as the always-full-scale label "
+                      f"(fewer total counts go into OSEM at low alpha); "
                       f"pre-CNN and post-CNN diffs each on their own shared "
                       f"scale (see colorbars)", fontsize=12)
         out_path = os.path.join(args.out_dir, f"qualitative_{key}_{args.split}.png")
@@ -296,3 +320,4 @@ def main():
  
 if __name__ == "__main__":
     main()
+ 
