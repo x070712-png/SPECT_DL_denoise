@@ -46,21 +46,23 @@ ALPHAS_ORDERED = [1.0, 0.5, 0.25, 0.125, 0.05]
  
 SPHERE_DIAMETERS_MM = [13, 17, 22, 28, 37, 60]
  
-# EARL data (noisy input / label) always lives at data/earl_dataset --
-# only the denoised_dir + alpha_correction flag change per checkpoint.
-DATA_DIR = "data/earl_dataset"
-SPHERE_DIR = "earl"
+# EARL data (noisy input / label) lives at data/earl_dataset_v2 -- the
+# joint-calibrated (sphere_conc, background_conc) phantom that fixed the
+# domain-gap bug (v1's RC/alpha was ~0.166; v2 is ~1.0-1.2). Only the
+# denoised_dir + alpha_correction flag change per checkpoint.
+DATA_DIR = "data/earl_dataset_v2"
+SPHERE_DIR = "data/earl_phantom_v2"
 SPHERE_PREFIX = "EARL_sphere_"
  
 EARL_CHECKPOINTS = {
     "unet_xcat_labelalpha": {
         "label": "U-Net (XCAT finetune, label x alpha)",
-        "denoised_dir": "logs/denoised/3d_unet_xcat_labelalpha_earl",
+        "denoised_dir": "logs/denoised/3d_unet_xcat_labelalpha_earl_v2",
         "alpha_correction": True,
     },
     "swin_xcat_labelalpha": {
         "label": "Swin UNETR (XCAT finetune, label x alpha)",
-        "denoised_dir": "logs/denoised/swin_xcat_labelalpha_earl",
+        "denoised_dir": "logs/denoised/swin_xcat_labelalpha_earl_v2",
         "alpha_correction": True,
     },
 }
