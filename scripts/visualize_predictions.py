@@ -143,6 +143,15 @@ def parse_args():
                          "auto-computed max is set by one unusually bright "
                          "representative phantom, making everything else look too "
                          "dark/near-black under the shared scale.")
+    p.add_argument("--diff_pre_vmax_override", type=float, default=None,
+                    help="if given, use this directly as the shared pre-CNN diff "
+                         "+/-scale instead of the auto-computed 99th-percentile max. "
+                         "NOTE: pixels beyond this get clipped/saturated -- shrinking "
+                         "it trades away the worst checkpoint/alpha's true magnitude "
+                         "for more visible mid-range detail elsewhere.")
+    p.add_argument("--diff_post_vmax_override", type=float, default=None,
+                    help="same as --diff_pre_vmax_override but for the post-CNN "
+                         "(output - label) diff panel.")
     return p.parse_args()
  
  
@@ -245,9 +254,16 @@ def main():
             inp_s = central_slice(inp, args.slice_axis)
             lbl_s = central_slice(lbl, args.slice_axis)
             den_s = central_slice(den, args.slice_axis)
-            all_intensity_vals.append(inp_s.max())
-            all_intensity_vals.append(lbl_s.max())
-            all_intensity_vals.append(den_s.max())
+            # 99th percentile, not true max -- same reasoning as the diff
+            # scales below: at low alpha, dividing the noisy input by alpha
+            # amplifies isolated Poisson-noise spikes enormously (a single
+            # raw value of ~60 becomes ~1200 at alpha=0.05), and a shared
+            # scale pinned to that one pixel crushes the real anatomical
+            # structure (which tops out around 15-40 in these XCAT/ellipsoid
+            # phantoms) to near-black everywhere else.
+            all_intensity_vals.append(np.percentile(inp_s, 99))
+            all_intensity_vals.append(np.percentile(lbl_s, 99))
+            all_intensity_vals.append(np.percentile(den_s, 99))
             # 99th percentile, not true max -- the true per-pixel max is
             # driven by single isolated Poisson-noise spikes (especially
             # after dividing the noisy input by alpha at low alpha, which
@@ -283,8 +299,10 @@ def main():
         global_vmax = args.intensity_vmax_override
     else:
         global_vmax = max(all_intensity_vals) * args.vmax_headroom
-    global_diff_pre_absmax = max(all_diff_pre_vals)
-    global_diff_post_absmax = max(all_diff_post_vals)
+    global_diff_pre_absmax = (args.diff_pre_vmax_override if args.diff_pre_vmax_override is not None
+                               else max(all_diff_pre_vals))
+    global_diff_post_absmax = (args.diff_post_vmax_override if args.diff_post_vmax_override is not None
+                                else max(all_diff_post_vals))
     print(f"Global intensity vmax = {global_vmax:.3f}")
     print(f"Pre-CNN diff scale  = +/-{global_diff_pre_absmax:.3f}")
     print(f"Post-CNN diff scale = +/-{global_diff_post_absmax:.3f}")
@@ -367,3 +385,4 @@ def main():
  
 if __name__ == "__main__":
     main()
+ 
