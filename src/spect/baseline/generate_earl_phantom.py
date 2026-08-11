@@ -83,12 +83,49 @@ regions by construction, background is 0.1-0.5 vs VOI 1.0-5.0), but
 hasn't been explicitly re-verified; worth a quick sanity check later if
 time allows.
 
-Usage:
+FIXED MODE (v4, 8/10 -- Stathis's finding at the T3 meeting10 8/10
+meeting): the v2/v3 joint calibration above matches the ellipsoid
+training domain's intensity SHAPE (mean + max/mean ratio) by solving for
+a background activity of 84.4954 -- but Stathis pointed out this makes
+sphere:background only ~1.5:1, whereas a real EARL/NEMA IQ phantom
+protocol normally has NO background at all (spheres only) or, if
+non-zero, something like a 10:1 sphere:background ratio -- nothing close
+to 1.5:1. His hypothesis: this unrealistically strong background is what
+is causing the CNN's ~systematic, alpha-independent overestimation seen
+in the EARL v2 CNN-output RC numbers (quant_earl_v2_{unet,swin}_output),
+NOT a general CNN bias as originally written into the workbook notes.
+
+Fixed mode tests this directly: sphere_act_conc is kept at the ALREADY
+v2-calibrated value (126.457 by default -- Stathis's point was about
+background, not sphere activity), and background_act_conc is set
+EXPLICITLY (no solving) -- start with 0.0 (a "true" EARL phantom, no
+background at all), then optionally try intermediate ratios (e.g.
+sphere/10 = 12.6, for a 10:1 ratio) if time allows, per Stathis's
+suggested progression. No mean/ratio target-matching is involved here;
+whatever mean/max/ratio the reconstruction ends up with is simply
+reported (via measure_clean_stats' existing printout) for the record.
+
+Usage (v2/v3 joint calibration, unchanged, DEFAULT if --calibration_mode
+not given):
     export PYTHONPATH=<repo_root>:$PYTHONPATH
     python3 src/spect/baseline/generate_earl_phantom.py \
         --out_dir data/earl_phantom_v2 \
         --target_mean 0.461 \
         --target_max_mean_ratio 25.20
+
+Usage (v4 fixed mode -- background=0 "true EARL" test):
+    python3 src/spect/baseline/generate_earl_phantom.py \
+        --out_dir data/earl_phantom_v3_bg0 \
+        --calibration_mode fixed \
+        --sphere_act_conc 126.457 \
+        --background_act_conc 0.0
+
+Usage (v4 fixed mode -- 10:1 sphere:background ratio, if time allows):
+    python3 src/spect/baseline/generate_earl_phantom.py \
+        --out_dir data/earl_phantom_v3_bg_ratio10 \
+        --calibration_mode fixed \
+        --sphere_act_conc 126.457 \
+        --background_act_conc 12.6457
 
 Outputs (in --out_dir):
     activity.npy            -- calibrated activity map, (128,128,128)
@@ -293,9 +330,40 @@ def calibrate_joint(target_mean, target_ratio, init_sphere_act_conc=2.0,
     return s_sol, b_sol, act_vol, ctac_vol, masks, mean_final, max_final, ratio_final
 
 
+def generate_fixed(sphere_act_conc, background_act_conc):
+    """v4 fixed mode (8/10, Stathis's finding): no calibration/solving at
+    all -- just generate + reconstruct at the EXPLICIT (sphere, background)
+    values given, so the resulting mean/max/ratio are whatever they turn
+    out to be (reported via measure_clean_stats' printout, not targeted).
+    Reuses measure_clean_stats() purely for its forward-project + OSEM
+    reconstruct + sphere-restricted-max logic -- the calibration loop
+    machinery (calibrate_sphere_only / calibrate_joint / solve_joint)
+    isn't involved here at all."""
+    mean, max_, act_vol, ctac_vol, masks = measure_clean_stats(sphere_act_conc, background_act_conc)
+    ratio = max_ / mean if mean > 0 else float("inf")
+    return act_vol, ctac_vol, masks, mean, max_, ratio
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--out_dir", type=str, required=True)
+    p.add_argument("--calibration_mode", type=str, default="joint", choices=["joint", "fixed"],
+                    help="'joint' (default, unchanged v2/v3 behaviour): solve for "
+                         "(sphere, background) to hit --target_mean/--target_max_mean_ratio. "
+                         "'fixed' (v4, 8/10 Stathis finding): skip all solving, generate "
+                         "directly at --sphere_act_conc/--background_act_conc as given -- "
+                         "use this to test whether a more realistic (near-zero) background "
+                         "removes the CNN-output overestimation seen with the joint-"
+                         "calibrated background of 84.4954.")
+    p.add_argument("--sphere_act_conc", type=float, default=126.457,
+                    help="[fixed mode only] sphere activity concentration -- default is "
+                         "the already-solved v2 joint-calibration value, since Stathis's "
+                         "point was specifically about background, not sphere activity")
+    p.add_argument("--background_act_conc", type=float, default=0.0,
+                    help="[fixed mode only] background activity concentration -- default "
+                         "0.0 (a 'true' EARL phantom per Stathis, no background at all). "
+                         "Try e.g. sphere_act_conc/10 for a 10:1 sphere:background ratio "
+                         "as a follow-up test if time allows.")
     p.add_argument("--target_mean", type=float, default=0.461,
                     help="target WHOLE-VOLUME mean of the clean reconstructed image at "
                          "alpha=1.0 -- measured from ellipsoid CLEAN labels "
@@ -317,10 +385,18 @@ def main():
 
     os.makedirs(args.out_dir, exist_ok=True)
 
-    s, b, act_vol, ctac_vol, masks, mean, max_, ratio = calibrate_joint(
-        args.target_mean, args.target_max_mean_ratio,
-        init_sphere_act_conc=args.init_sphere_act_conc,
-        max_refine=args.max_refine, mean_tol=args.mean_tol, ratio_tol=args.ratio_tol)
+    if args.calibration_mode == "fixed":
+        print(f"[fixed mode] generating directly at sphere={args.sphere_act_conc:.6g}, "
+              f"background={args.background_act_conc:.6g} -- no calibration/solving, "
+              f"whatever mean/max/ratio results is just reported below.")
+        act_vol, ctac_vol, masks, mean, max_, ratio = generate_fixed(
+            args.sphere_act_conc, args.background_act_conc)
+        s, b = args.sphere_act_conc, args.background_act_conc
+    else:
+        s, b, act_vol, ctac_vol, masks, mean, max_, ratio = calibrate_joint(
+            args.target_mean, args.target_max_mean_ratio,
+            init_sphere_act_conc=args.init_sphere_act_conc,
+            max_refine=args.max_refine, mean_tol=args.mean_tol, ratio_tol=args.ratio_tol)
 
     np.save(os.path.join(args.out_dir, "activity.npy"), act_vol)
     np.save(os.path.join(args.out_dir, "att_map.npy"), ctac_vol)
@@ -336,14 +412,18 @@ def main():
 
     print(f"\nFinal sphere_act_conc_MBq_ml = {s:.6g}")
     print(f"Final background_act_conc_MBq_ml = {b:.6g}")
-    print(f"Final reconstructed mean = {mean:.4f} (target {args.target_mean})")
-    print(f"Final reconstructed max/mean ratio = {ratio:.2f} (target {args.target_max_mean_ratio})")
+    if args.calibration_mode == "fixed":
+        print(f"Resulting reconstructed mean = {mean:.4f} (not targeted -- fixed mode)")
+        print(f"Resulting reconstructed max/mean ratio = {ratio:.2f} (not targeted -- fixed mode)")
+    else:
+        print(f"Final reconstructed mean = {mean:.4f} (target {args.target_mean})")
+        print(f"Final reconstructed max/mean ratio = {ratio:.2f} (target {args.target_max_mean_ratio})")
     print(f"Saved activity.npy, att_map.npy, and sphere masks to {args.out_dir}")
     print(f"\nNext step -- feed into the existing eval pipeline unchanged:")
     print(f"python3 src/spect/baseline/generate_eval_phantom_dataset.py \\")
     print(f"    --activity {args.out_dir}/activity.npy \\")
     print(f"    --att_map {args.out_dir}/att_map.npy \\")
-    print(f"    --out_dir data/earl_dataset_v2 \\")
+    print(f"    --out_dir data/earl_dataset_v3_bg0  (pick a name that matches --out_dir above) \\")
     print(f"    --seeds 42 43 44 45 46 47 48 49 50 51")
 
 
