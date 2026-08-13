@@ -387,7 +387,6 @@ def main():
         fig.colorbar(im_post, ax=axes[:, 3].tolist(), fraction=0.02, pad=0.02,
                      label="post-CNN difference")
 
-        fig.suptitle(f"{CHECKPOINTS[key]['label']} -- {args.split} split", fontsize=15)
         out_path = os.path.join(args.out_dir, f"qualitative_{key}_{args.dataset}_{args.split}.png")
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
