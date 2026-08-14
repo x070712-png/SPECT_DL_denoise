@@ -26,52 +26,104 @@ alpha before plotting/diffing. Only label×alpha checkpoints are used for
 EARL (per Stathis's 8/3 guidance -- old method isn't being evaluated on
 this data), so EARL_CHECKPOINTS below only has label×alpha entries.
 
+NOISY-INPUT alpha-division (Kris, 8/3 meeting -- applies to EVERY
+checkpoint, NOT gated by alpha_correction): the raw noisy reconstruction
+is also naturally ~alpha x dimmer in absolute units at low alpha,
+independent of any training-target scaling -- the noisy sinogram is
+Poisson-thinned by alpha before reconstruction (see sirf_bridge.py's
+acquire_data()), so fewer total counts go into OSEM and the reconstructed
+image's overall intensity scales down roughly proportionally. The label
+is always full-scale (clean, alpha-independent), so comparing it against
+a raw noisy input that's ~alpha x dimmer makes the pre-CNN diff panel
+balloon at low alpha for a reason that has nothing to do with noise --
+just a scale mismatch. Dividing the noisy input by alpha for display
+(both its own panel and the pre-CNN diff) removes this, applied uniformly
+to every checkpoint/row.
+
 Usage:
     export PYTHONPATH=src:$PYTHONPATH
-    python3 scripts/visualize_earl_predictions.py --checkpoint_key unet_xcat_labelalpha
-    python3 scripts/visualize_earl_predictions.py --checkpoint_key swin_xcat_labelalpha
-    python3 scripts/visualize_earl_predictions.py --checkpoint_key all
+    python3 scripts/visualize_earl_predictions.py --variant v3_bg0 --checkpoint_key all
+    python3 scripts/visualize_earl_predictions.py --variant v3_bg_ratio10 --checkpoint_key all
+    python3 scripts/visualize_earl_predictions.py --variant v2 --checkpoint_key all
 """
 
 import argparse
 import os
- 
+
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
- 
+
 ALPHA_STR = {1.0: "1p0", 0.5: "0p5", 0.25: "0p25", 0.125: "0p125", 0.05: "0p05"}
 ALPHAS_ORDERED = [1.0, 0.5, 0.25, 0.125, 0.05]
- 
+
 SPHERE_DIAMETERS_MM = [13, 17, 22, 28, 37, 60]
- 
-# EARL data (noisy input / label) lives at data/earl_dataset_v2 -- the
-# joint-calibrated (sphere_conc, background_conc) phantom that fixed the
-# domain-gap bug (v1's RC/alpha was ~0.166; v2 is ~1.0-1.2). Only the
-# denoised_dir + alpha_correction flag change per checkpoint.
-DATA_DIR = "data/earl_dataset_v2"
-SPHERE_DIR = "data/earl_phantom_v2"
 SPHERE_PREFIX = "EARL_sphere_"
- 
-EARL_CHECKPOINTS = {
-    "unet_xcat_labelalpha": {
-        "label": "U-Net (XCAT finetune, label x alpha)",
-        "denoised_dir": "logs/denoised/3d_unet_xcat_labelalpha_earl_v2",
-        "alpha_correction": True,
+
+# Three background variants of the EARL phantom (see meeting10 -- bg0 is
+# Stathis's "true EARL/NEMA" definition (background=0.0), bg_ratio10 is the
+# 10:1 sphere:background intermediate test point, v2 is the older jointly-
+# calibrated "modified NEMA" dataset). Paths confirmed via
+# `ls logs/denoised/ | grep earl` and `ls data/ | grep earl` on the cluster
+# -- NOT guessed.
+EARL_VARIANTS = {
+    "v2": {
+        "data_dir": "data/earl_dataset_v2",
+        "sphere_dir": "data/earl_phantom_v2",
+        "checkpoints": {
+            "unet_xcat_labelalpha": {
+                "label": "U-Net (XCAT finetune, label x alpha) -- EARL v2",
+                "denoised_dir": "logs/denoised/3d_unet_xcat_labelalpha_earl_v2",
+                "alpha_correction": True,
+            },
+            "swin_xcat_labelalpha": {
+                "label": "Swin UNETR (XCAT finetune, label x alpha) -- EARL v2",
+                "denoised_dir": "logs/denoised/swin_xcat_labelalpha_earl_v2",
+                "alpha_correction": True,
+            },
+        },
     },
-    "swin_xcat_labelalpha": {
-        "label": "Swin UNETR (XCAT finetune, label x alpha)",
-        "denoised_dir": "logs/denoised/swin_xcat_labelalpha_earl_v2",
-        "alpha_correction": True,
+    "v3_bg0": {
+        "data_dir": "data/earl_dataset_v3_bg0",
+        "sphere_dir": "data/earl_phantom_v3_bg0",
+        "checkpoints": {
+            "unet_xcat_labelalpha": {
+                "label": "U-Net (XCAT finetune, label x alpha) -- EARL bg0 (true EARL)",
+                "denoised_dir": "logs/denoised/3d_unet_xcat_labelalpha_earl_v3_bg0",
+                "alpha_correction": True,
+            },
+            "swin_xcat_labelalpha": {
+                "label": "Swin UNETR (XCAT finetune, label x alpha) -- EARL bg0 (true EARL)",
+                "denoised_dir": "logs/denoised/swin_xcat_labelalpha_earl_v3_bg0",
+                "alpha_correction": True,
+            },
+        },
+    },
+    "v3_bg_ratio10": {
+        "data_dir": "data/earl_dataset_v3_bg_ratio10",
+        "sphere_dir": "data/earl_phantom_v3_bg_ratio10",
+        "checkpoints": {
+            "unet_xcat_labelalpha": {
+                "label": "U-Net (XCAT finetune, label x alpha) -- EARL 10:1 background",
+                "denoised_dir": "logs/denoised/3d_unet_xcat_labelalpha_earl_v3_bg_ratio10",
+                "alpha_correction": True,
+            },
+            "swin_xcat_labelalpha": {
+                "label": "Swin UNETR (XCAT finetune, label x alpha) -- EARL 10:1 background",
+                "denoised_dir": "logs/denoised/swin_xcat_labelalpha_earl_v3_bg_ratio10",
+                "alpha_correction": True,
+            },
+        },
     },
 }
- 
- 
+
+
 def parse_args():
     p = argparse.ArgumentParser()
+    p.add_argument("--variant", type=str, default="v3_bg0", choices=list(EARL_VARIANTS.keys()))
     p.add_argument("--checkpoint_key", type=str, default="all",
-                    choices=list(EARL_CHECKPOINTS.keys()) + ["all"])
+                    choices=list(EARL_VARIANTS["v2"]["checkpoints"].keys()) + ["all"])
     p.add_argument("--seed", type=int, default=42,
                     help="which single noise realization to display (RC numbers "
                          "are seed-averaged separately via quantify_nema_earl.py -- "
@@ -79,47 +131,53 @@ def parse_args():
     p.add_argument("--out_dir", type=str, default="logs/qualitative_earl")
     p.add_argument("--vmax_headroom", type=float, default=1.2)
     return p.parse_args()
- 
- 
-def find_sphere_slice():
+
+
+def find_sphere_slice(sphere_dir):
     """Pick the z-slice with the most total sphere-mask coverage (summed
     across all 6 spheres) -- this is the EARL equivalent of central_slice()
     in visualize_predictions.py, but accounts for the spheres sitting
     off-centre (ring_z=-37mm) instead of assuming the volume's midpoint."""
     total = None
     for d in SPHERE_DIAMETERS_MM:
-        mask_path = os.path.join(SPHERE_DIR, f"{SPHERE_PREFIX}{d}mm.npy")
+        mask_path = os.path.join(sphere_dir, f"{SPHERE_PREFIX}{d}mm.npy")
         mask = np.load(mask_path).astype(np.int32)
         total = mask if total is None else total + mask
     per_slice_counts = total.sum(axis=(1, 2))  # sum over (H, W) per z-slice
     z = int(np.argmax(per_slice_counts))
     print(f"Selected z-slice {z} (total sphere voxels in-slice = {per_slice_counts[z]})")
     return z
- 
- 
-def load_triplet(denoised_dir, alpha_str, seed):
-    inp_path = os.path.join(DATA_DIR, f"alpha_{alpha_str}", f"input_seed{seed}.npy")
-    lbl_path = os.path.join(DATA_DIR, f"alpha_{alpha_str}", "label.npy")
+
+
+def load_triplet(data_dir, denoised_dir, alpha_str, seed):
+    inp_path = os.path.join(data_dir, f"alpha_{alpha_str}", f"input_seed{seed}.npy")
+    lbl_path = os.path.join(data_dir, f"alpha_{alpha_str}", "label.npy")
     den_path = os.path.join(denoised_dir, f"alpha_{alpha_str}", f"denoised_seed{seed}.npy")
- 
+
     missing = [p for p in (inp_path, lbl_path, den_path) if not os.path.exists(p)]
     if missing:
         return None, missing
- 
+
     inp = np.load(inp_path).astype(np.float32)
     lbl = np.load(lbl_path).astype(np.float32)
     den = np.load(den_path).astype(np.float32)
     return (inp, lbl, den), []
- 
- 
+
+
 def main():
     args = parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
- 
-    keys = list(EARL_CHECKPOINTS.keys()) if args.checkpoint_key == "all" else [args.checkpoint_key]
- 
-    z = find_sphere_slice()
- 
+
+    variant = EARL_VARIANTS[args.variant]
+    checkpoints = variant["checkpoints"]
+    data_dir = variant["data_dir"]
+    sphere_dir = variant["sphere_dir"]
+    print(f"variant = {args.variant}, data_dir = {data_dir}, sphere_dir = {sphere_dir}")
+
+    keys = list(checkpoints.keys()) if args.checkpoint_key == "all" else [args.checkpoint_key]
+
+    z = find_sphere_slice(sphere_dir)
+
     # ---- Pass 1: load everything, compute global scales (same design as
     # visualize_predictions.py -- separate pre-CNN / post-CNN diff scales,
     # shared intensity scale, all computed BEFORE any plotting) ----
@@ -127,18 +185,18 @@ def main():
     all_intensity_vals = []
     all_diff_pre_vals = []
     all_diff_post_vals = []
- 
+
     for key in keys:
-        denoised_dir = EARL_CHECKPOINTS[key]["denoised_dir"]
+        denoised_dir = checkpoints[key]["denoised_dir"]
         loaded[key] = {}
         for alpha in ALPHAS_ORDERED:
             alpha_str = ALPHA_STR[alpha]
-            data, missing = load_triplet(denoised_dir, alpha_str, args.seed)
+            data, missing = load_triplet(data_dir, denoised_dir, alpha_str, args.seed)
             if data is None:
                 print(f"[skip] {key} alpha_{alpha_str} seed={args.seed}: missing {missing}")
                 loaded[key][alpha_str] = None
                 continue
- 
+
             inp, lbl, den = data
             # raw noisy reconstruction is naturally ~alpha x dimmer (fewer
             # total counts went into OSEM) -- divide by alpha for display,
@@ -146,10 +204,10 @@ def main():
             # alpha_correction below), so it is comparable to the always-
             # full-scale label (Kris, 8/3 meeting; see module docstring)
             inp = inp / alpha
-            if EARL_CHECKPOINTS[key]["alpha_correction"]:
+            if checkpoints[key]["alpha_correction"]:
                 den = den / alpha
             loaded[key][alpha_str] = (inp, lbl, den)
- 
+
             inp_s, lbl_s, den_s = inp[z], lbl[z], den[z]
             all_intensity_vals.append(inp_s.max())
             all_intensity_vals.append(lbl_s.max())
@@ -162,33 +220,32 @@ def main():
             # near-invisible under one shared scale.
             all_diff_post_vals.append(np.percentile(np.abs(den_s - lbl_s), 99))
             all_diff_pre_vals.append(np.percentile(np.abs(inp_s - lbl_s), 99))
- 
+
     if not all_intensity_vals:
-        raise RuntimeError("Nothing loaded -- check EARL_CHECKPOINTS paths and that "
-                            "run_inference_nema_earl.py has been run for the requested "
+        raise RuntimeError(f"Nothing loaded -- check EARL_VARIANTS['{args.variant}'] paths and "
+                            "that run_inference_nema_earl.py has been run for the requested "
                             "checkpoint(s) and seed.")
- 
+
     global_vmax = max(all_intensity_vals) * args.vmax_headroom
     global_diff_pre_absmax = max(all_diff_pre_vals)
     global_diff_post_absmax = max(all_diff_post_vals)
     print(f"Global intensity vmax = {global_vmax:.3f}")
     print(f"Pre-CNN diff scale  = +/-{global_diff_pre_absmax:.3f}")
     print(f"Post-CNN diff scale = +/-{global_diff_post_absmax:.3f}")
- 
+
     # ---- Pass 2: plot ----
-    col_titles = ["Noisy input\n(/ alpha)", "(Noisy/alpha) - label\n(pre-CNN baseline)",
-                  "Model output", "Output - label\n(post-CNN)", "Ground truth (label)"]
- 
+    col_titles = ["Noisy input", "Pre-CNN error", "Model output", "Post-CNN error", "Ground truth"]
+
     for key in keys:
         n_rows = sum(1 for v in loaded[key].values() if v is not None)
         if n_rows == 0:
             print(f"[skip figure] {key}: no data loaded")
             continue
- 
+
         fig, axes = plt.subplots(n_rows, 5, figsize=(22, 4.2 * n_rows))
         if n_rows == 1:
             axes = axes[None, :]
- 
+
         row = 0
         for alpha in ALPHAS_ORDERED:
             alpha_str = ALPHA_STR[alpha]
@@ -199,7 +256,7 @@ def main():
             inp_s, lbl_s, den_s = inp[z], lbl[z], den[z]
             diff_pre = inp_s - lbl_s
             diff_post = den_s - lbl_s
- 
+
             axes[row, 0].imshow(inp_s, cmap="gray", vmin=0, vmax=global_vmax)
             im_pre = axes[row, 1].imshow(diff_pre, cmap="coolwarm",
                                           vmin=-global_diff_pre_absmax, vmax=global_diff_pre_absmax)
@@ -207,38 +264,32 @@ def main():
             im_post = axes[row, 3].imshow(diff_post, cmap="coolwarm",
                                            vmin=-global_diff_post_absmax, vmax=global_diff_post_absmax)
             im_lbl = axes[row, 4].imshow(lbl_s, cmap="gray", vmin=0, vmax=global_vmax)
- 
+
             axes[row, 0].set_ylabel(f"alpha={alpha}\nEARL, z={z}, seed={args.seed}",
-                                     fontsize=10, rotation=0, labelpad=70, va="center")
- 
+                                     fontsize=16, rotation=0, labelpad=90, va="center")
+
             if row == 0:
                 for c, title in enumerate(col_titles):
-                    axes[row, c].set_title(title, fontsize=11)
- 
+                    axes[row, c].set_title(title, fontsize=15)
+
             for ax in axes[row]:
                 ax.set_xticks([])
                 ax.set_yticks([])
- 
+
             row += 1
- 
+
         fig.colorbar(im_lbl, ax=axes[:, 4].tolist(), fraction=0.02, pad=0.02,
                      label="count-domain activity")
         fig.colorbar(im_pre, ax=axes[:, 1].tolist(), fraction=0.02, pad=0.02,
                      label="pre-CNN difference")
         fig.colorbar(im_post, ax=axes[:, 3].tolist(), fraction=0.02, pad=0.02,
                      label="post-CNN difference")
- 
-        fig.suptitle(f"{EARL_CHECKPOINTS[key]['label']} -- EARL phantom, seed={args.seed}, "
-                      f"z={z} (cross-section through spheres); shared intensity scale across "
-                      f"all rows; noisy input shown divided by alpha for display, so it is on "
-                      f"the same scale as the always-full-scale label; pre-CNN and post-CNN "
-                      f"diffs each on their own shared scale",
-                      fontsize=12)
-        out_path = os.path.join(args.out_dir, f"qualitative_earl_{key}_seed{args.seed}.png")
+
+        out_path = os.path.join(args.out_dir, f"qualitative_earl_{args.variant}_{key}_seed{args.seed}.png")
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved {out_path}")
- 
- 
+
+
 if __name__ == "__main__":
     main()
