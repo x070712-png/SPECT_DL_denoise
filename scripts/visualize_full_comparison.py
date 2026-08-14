@@ -1,38 +1,50 @@
 # scripts/visualize_full_comparison.py
 """
-One-figure-does-everything version: for a single architecture, show noisy
-input / pre-CNN error / ground truth ONCE, plus BOTH checkpoints' (old
-method and label x alpha) output and post-CNN error side by side.
+One-figure-does-everything version: show noisy input / pre-CNN error /
+ground truth ONCE, plus TWO checkpoints' output and post-CNN error side
+by side. Generic over WHICH two checkpoints -- originally built to
+compare old-method vs label x alpha for one architecture (Section 4.3),
+also works for comparing U-Net vs Swin UNETR within the SAME training
+formulation (e.g. both old-method, for Section 4.1's pipeline
+reproduction figures) -- any two of the four checkpoint_key entries in
+CHECKPOINTS_BY_DATASET can go on the left/right.
 
 Columns (5 rows, one per alpha level):
 
-    [ Noisy input | Pre-CNN error | Baseline output | Baseline error |
-      Label x alpha output | Label x alpha error | Ground truth ]
+    [ Noisy input | Pre-CNN error | <left> output | <left> error |
+      <right> output | <right> error | Ground truth ]
 
 Shared colour scales, same discipline as the other qualitative scripts:
-  - ONE intensity scale across noisy input / baseline output /
-    label x alpha output / ground truth (all count-domain, all comparable).
+  - ONE intensity scale across noisy input / left output / right output /
+    ground truth (all count-domain, all comparable).
   - ONE pre-CNN diff scale (noisy/alpha - label) -- only one such column
     here, but kept as its own scale rather than folding into the post-CNN
     one, since pre-CNN error is an order of magnitude larger by
     construction (same reasoning as visualize_predictions.py).
-  - ONE post-CNN diff scale shared between baseline error AND label x
-    alpha error (same requirement as visualize_old_vs_labelalpha.py --
-    the whole point of putting them side by side is that colour intensity
-    is directly comparable between old and new).
+  - ONE post-CNN diff scale shared between left error AND right error --
+    the whole point of putting two checkpoints side by side is that
+    colour intensity is directly comparable between them.
 
 Reads the same already-dumped denoised .npy files as the other two
 qualitative scripts -- no torch/GPU needed, safe on the login node.
 
-Run (defaults to what was asked for -- XCAT, Swin):
+Two ways to pick the two checkpoints:
 
-    export PYTHONPATH=src:$PYTHONPATH
-    python3 scripts/visualize_full_comparison.py --dataset xcat --arch swin
+  1. --arch {unet,swin} -- shortcut for the original use case, old-method
+     vs label x alpha for ONE architecture (Section 4.3):
+       python3 scripts/visualize_full_comparison.py --dataset xcat --arch swin
 
-Also works for the other 3 (dataset, arch) combinations if useful later:
-    python3 scripts/visualize_full_comparison.py --dataset xcat --arch unet
-    python3 scripts/visualize_full_comparison.py --dataset ellipsoid --arch swin
-    python3 scripts/visualize_full_comparison.py --dataset ellipsoid --arch unet
+  2. --left_key / --right_key -- any two of unet_old / unet_label_alpha /
+     swin_old / swin_label_alpha directly. E.g. Section 4.1's "old-method,
+     U-Net vs Swin" comparison:
+       python3 scripts/visualize_full_comparison.py --dataset ellipsoid \\
+           --left_key unet_old --right_key swin_old \\
+           --left_label "U-Net" --right_label "Swin UNETR"
+       python3 scripts/visualize_full_comparison.py --dataset xcat \\
+           --left_key unet_old --right_key swin_old \\
+           --left_label "U-Net" --right_label "Swin UNETR"
+
+--left_key/--right_key take priority over --arch if both are given.
 """
 
 import argparse
@@ -57,13 +69,24 @@ ARCH_KEYS = {
     "unet": ("unet_old", "unet_label_alpha"),
     "swin": ("swin_old", "swin_label_alpha"),
 }
+ALL_CHECKPOINT_KEYS = ["unet_old", "unet_label_alpha", "swin_old", "swin_label_alpha"]
 
 
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--dataset", type=str, default="xcat", choices=["ellipsoid", "xcat"])
     p.add_argument("--data_dir", type=str, default=None)
-    p.add_argument("--arch", type=str, default="swin", choices=["unet", "swin"])
+    p.add_argument("--arch", type=str, default="swin", choices=["unet", "swin"],
+                    help="shortcut for --left_key/--right_key = (<arch>_old, <arch>_label_alpha); "
+                         "ignored if --left_key/--right_key are given")
+    p.add_argument("--left_key", type=str, default=None, choices=ALL_CHECKPOINT_KEYS)
+    p.add_argument("--right_key", type=str, default=None, choices=ALL_CHECKPOINT_KEYS)
+    p.add_argument("--left_label", type=str, default=None,
+                    help="column title prefix for the left checkpoint (default: 'Baseline' if "
+                         "--arch shortcut used, otherwise the checkpoint's own label)")
+    p.add_argument("--right_label", type=str, default=None,
+                    help="column title prefix for the right checkpoint (default: 'Label x alpha' "
+                         "if --arch shortcut used, otherwise the checkpoint's own label)")
     p.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])
     p.add_argument("--out_dir", type=str, default="logs/qualitative")
     p.add_argument("--slice_axis", type=int, default=0)
@@ -71,8 +94,7 @@ def parse_args():
     p.add_argument("--intensity_vmax_override", type=float, default=None)
     p.add_argument("--diff_pre_vmax_override", type=float, default=None)
     p.add_argument("--diff_post_vmax_override", type=float, default=None,
-                    help="single shared +/- scale for BOTH baseline and "
-                         "label x alpha post-CNN error columns.")
+                    help="single shared +/- scale for BOTH left and right post-CNN error columns.")
     return p.parse_args()
 
 
@@ -82,12 +104,23 @@ def main():
 
     CHECKPOINTS = CHECKPOINTS_BY_DATASET[args.dataset]
     data_dir = args.data_dir or DATA_DIR_BY_DATASET[args.dataset]
-    old_key, new_key = ARCH_KEYS[args.arch]
+
+    if args.left_key and args.right_key:
+        old_key, new_key = args.left_key, args.right_key
+        default_left_label, default_right_label = old_key, new_key
+        tag = f"{old_key}_vs_{new_key}"
+    else:
+        old_key, new_key = ARCH_KEYS[args.arch]
+        default_left_label, default_right_label = "Baseline", "Label x alpha"
+        tag = args.arch
+
+    left_label = args.left_label or default_left_label
+    right_label = args.right_label or default_right_label
     old_cfg, new_cfg = CHECKPOINTS[old_key], CHECKPOINTS[new_key]
 
-    print(f"Dataset = {args.dataset}, arch = {args.arch}, data_dir = {data_dir}")
-    print(f"  old: {old_key} -> {old_cfg['denoised_dir']}")
-    print(f"  new: {new_key} -> {new_cfg['denoised_dir']}")
+    print(f"Dataset = {args.dataset}, data_dir = {data_dir}")
+    print(f"  left  ({left_label}): {old_key} -> {old_cfg['denoised_dir']}")
+    print(f"  right ({right_label}): {new_key} -> {new_cfg['denoised_dir']}")
 
     representative = pick_representative_phantoms(args.split)
     print(f"Representative phantoms ({args.split} split): {representative}")
@@ -156,8 +189,8 @@ def main():
     print(f"Post-CNN diff scale (old AND new, shared) = +/-{global_diff_post_absmax:.3f}")
 
     # ---- Pass 2: plot ----
-    col_titles = ["Noisy input", "Pre-CNN error", "Baseline output", "Baseline error",
-                  "Label x alpha output", "Label x alpha error", "Ground truth"]
+    col_titles = ["Noisy input", "Pre-CNN error", f"{left_label} output", f"{left_label} error",
+                  f"{right_label} output", f"{right_label} error", "Ground truth"]
 
     n_rows = len(rows)
     fig, axes = plt.subplots(n_rows, 7, figsize=(30, 4.2 * n_rows))
@@ -206,7 +239,7 @@ def main():
     fig.colorbar(im_post, ax=axes[:, 5].tolist(), fraction=0.02, pad=0.02,
                  label="post-CNN error (shared, old & new)")
 
-    out_path = os.path.join(args.out_dir, f"full_comparison_{args.arch}_{args.dataset}_{args.split}.png")
+    out_path = os.path.join(args.out_dir, f"full_comparison_{tag}_{args.dataset}_{args.split}.png")
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved {out_path}")
