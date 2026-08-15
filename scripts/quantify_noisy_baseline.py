@@ -25,6 +25,8 @@ import numpy as np
  
 from spect.baseline.dataset import build_split
 from spect.baseline.quantification import build_voi_masks
+
+ALPHAS_ORDERED = ["1p0", "0p5", "0p25", "0p125", "0p05"]
  
  
 def alpha_to_float(alpha_str):
@@ -269,7 +271,20 @@ def parse_args():
     p.add_argument("--split", type=str, default="val", choices=["train", "val", "test"],
                     help="split used for the combined-mask RC-by-alpha baseline "
                          "(should match whatever split the after-denoising "
-                         "comparison will use)")
+                         "comparison will use). Ignored if --phantom_indices is given.")
+    p.add_argument("--phantom_indices", type=str, default=None,
+                    help="comma-separated phantom indices, e.g. '90,91,...,99' -- if "
+                         "given, Pass 1 (combined-mask RC by alpha) uses these SAME "
+                         "indices at all 5 alphas instead of --split's block-based "
+                         "pairing (Stathis, 8/14: 'use the same 10 test phantoms... "
+                         "modified according to the 5 noise realisations, to compare "
+                         "like for like'). Use indices 90-99 -- alpha_1p0's existing "
+                         "test-split holdout, which is unseen training data under "
+                         "every alpha (see run_inference_dump.py's 'FIXED-PHANTOM "
+                         "MODE' docstring for why). Pass 2 (per-ellipsoid size "
+                         "analysis) is unaffected by this flag -- it answers a "
+                         "different question (structural PVE-vs-size trend) and "
+                         "still pools/restricts per --pool_all_for_size_analysis.")
     p.add_argument("--out_csv", type=str, default="logs/quant_noisy_baseline.csv")
     p.add_argument("--per_voi_csv", type=str, default=None,
                     help="where to save the per-ellipsoid breakdown "
@@ -328,7 +343,13 @@ def main():
     # number that will later be compared against "after denoising" on a
     # trained checkpoint, so it stays tied to val/test, not all 500.
     # ------------------------------------------------------------------
-    pairs = build_split(args.split)
+    if args.phantom_indices:
+        indices = [int(x) for x in args.phantom_indices.split(",")]
+        pairs = [(idx, a) for idx in indices for a in ALPHAS_ORDERED]
+        print(f"[FIXED-PHANTOM MODE] Pass 1 uses {len(indices)} phantom(s) {indices} "
+              f"x {len(ALPHAS_ORDERED)} alphas = {len(pairs)} pairs (--split={args.split} ignored)")
+    else:
+        pairs = build_split(args.split)
     rows = []
     for phantom_idx, alpha_str in pairs:
         combined_row, _ = process_phantom(phantom_idx, alpha_str, args.data_dir,
