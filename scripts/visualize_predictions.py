@@ -138,7 +138,22 @@ def parse_args():
                          "-- defaults to DATA_DIR_BY_DATASET[--dataset] if not given")
     p.add_argument("--checkpoint_key", type=str, default="all",
                     choices=list(CHECKPOINTS_BY_DATASET["ellipsoid"].keys()) + ["all"])
-    p.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])
+    p.add_argument("--split", type=str, default="test", choices=["train", "val", "test"],
+                    help="ignored if --fixed_phantom is given")
+    p.add_argument("--fixed_phantom", type=int, default=None,
+                    help="if given, show this SAME phantom index at all 5 alphas instead "
+                         "of pick_representative_phantoms()'s one-different-phantom-per-"
+                         "alpha choice -- matches the fixed-10-phantom x 5-alpha "
+                         "evaluation (Stathis, 8/14 review). Use an index in 90-99 (the "
+                         "fixed-10 set Table 4.2/4.4 were regenerated on). MUST be paired "
+                         "with --fixed10_dirs.")
+    p.add_argument("--fixed10_dirs", action="store_true",
+                    help="redirect every checkpoint's denoised_dir to the "
+                         "'<denoised_dir>_fixed10' variant (e.g. logs/denoised/3d_unet -> "
+                         "logs/denoised/3d_unet_fixed10) produced by run_inference_dump.py "
+                         "--phantom_indices 90,...,99 -- required for --fixed_phantom to "
+                         "find any denoised output beyond alpha_1p0 (only alpha_1p0's "
+                         "plain --split test set happens to also cover 90-99)")
     p.add_argument("--out_dir", type=str, default="logs/qualitative")
     p.add_argument("--slice_axis", type=int, default=0, help="0=axial, 1=coronal, 2=sagittal")
     p.add_argument("--vmax_headroom", type=float, default=1.2,
@@ -174,16 +189,29 @@ def central_slice(vol, axis):
 
 
 def pick_representative_phantoms(split):
-    """One (phantom_idx, alpha_str) per alpha level, from the given split
+    """
+    One (phantom_idx, alpha_str) per alpha level, from the given split
     -- first phantom encountered in each alpha group, consistent choice
     across all checkpoints since it only depends on data_dir's split, not
-    on which checkpoint is being visualised."""
+    on which checkpoint is being visualised.
+    Returns {alpha_str: phantom_idx}.
+    """
     pairs = build_split(split)
     picked = {}
     for phantom_idx, alpha_str in pairs:
         if alpha_str not in picked:
             picked[alpha_str] = phantom_idx
     return picked  # {alpha_str: phantom_idx}
+
+
+def pick_fixed_phantom(phantom_idx):
+    """SAME phantom_idx at all 5 alphas -- matches the fixed-10-phantom x
+    5-alpha evaluation design. Only
+    valid together with --fixed10_dirs (denoised_dir must point at the
+    *_fixed10 directories produced by run_inference_dump.py
+    --phantom_indices, since the plain denoised_dir only ever contains
+    ONE alpha's worth of test-split output for phantom 90-99, not all 5)."""
+    return {ALPHA_STR[a]: phantom_idx for a in ALPHAS_ORDERED}
 
 
 def load_triplet(data_dir, denoised_dir, phantom_idx, alpha_str):
@@ -216,8 +244,16 @@ def main():
 
     keys = list(CHECKPOINTS.keys()) if args.checkpoint_key == "all" else [args.checkpoint_key]
 
-    representative = pick_representative_phantoms(args.split)
-    print(f"Representative phantoms ({args.split} split): {representative}")
+    if args.fixed_phantom is not None:
+        representative = pick_fixed_phantom(args.fixed_phantom)
+        print(f"[FIXED-PHANTOM MODE] Using phantom {args.fixed_phantom:04d} at all 5 alphas "
+              f"(--split={args.split} ignored)")
+        if not args.fixed10_dirs:
+            print("[warn] --fixed_phantom given without --fixed10_dirs -- denoised lookups "
+                  "for alphas other than 1p0 will likely 404 (see --fixed10_dirs help)")
+    else:
+        representative = pick_representative_phantoms(args.split)
+        print(f"Representative phantoms ({args.split} split): {representative}")
 
     # ------------------------------------------------------------------
     # Pass 1: load everything for every checkpoint x alpha up front, so a
@@ -231,6 +267,8 @@ def main():
 
     for key in keys:
         denoised_dir = CHECKPOINTS[key]["denoised_dir"]
+        if args.fixed10_dirs:
+            denoised_dir = denoised_dir + "_fixed10"
         loaded[key] = {}
         for alpha in ALPHAS_ORDERED:
             alpha_str = ALPHA_STR[alpha]
@@ -387,7 +425,8 @@ def main():
         fig.colorbar(im_post, ax=axes[:, 3].tolist(), fraction=0.02, pad=0.02,
                      label="post-CNN difference")
 
-        out_path = os.path.join(args.out_dir, f"qualitative_{key}_{args.dataset}_{args.split}.png")
+        split_tag = f"fixed10_p{args.fixed_phantom:04d}" if args.fixed_phantom is not None else args.split
+        out_path = os.path.join(args.out_dir, f"qualitative_{key}_{args.dataset}_{split_tag}.png")
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved {out_path}")

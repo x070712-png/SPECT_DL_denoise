@@ -62,6 +62,7 @@ from visualize_predictions import (
     ALPHAS_ORDERED,
     central_slice,
     pick_representative_phantoms,
+    pick_fixed_phantom,
     load_triplet,
 )
 
@@ -87,7 +88,18 @@ def parse_args():
     p.add_argument("--right_label", type=str, default=None,
                     help="column title prefix for the right checkpoint (default: 'Label x alpha' "
                          "if --arch shortcut used, otherwise the checkpoint's own label)")
-    p.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])
+    p.add_argument("--split", type=str, default="test", choices=["train", "val", "test"],
+                    help="ignored if --fixed_phantom is given")
+    p.add_argument("--fixed_phantom", type=int, default=None,
+                    help="if given, show this SAME phantom index at all 5 alphas instead of "
+                         "pick_representative_phantoms()'s one-different-phantom-per-alpha "
+                         "choice -- matches the fixed-10-phantom x 5-alpha evaluation "
+                         "(Stathis, 8/14 review). Use an index in 90-99. MUST be paired with "
+                         "--fixed10_dirs. See visualize_predictions.py's pick_fixed_phantom().")
+    p.add_argument("--fixed10_dirs", action="store_true",
+                    help="redirect both checkpoints' denoised_dir to the '<denoised_dir>_fixed10' "
+                         "variant produced by run_inference_dump.py --phantom_indices 90,...,99 "
+                         "-- required for --fixed_phantom to find denoised output beyond alpha_1p0")
     p.add_argument("--out_dir", type=str, default="logs/qualitative")
     p.add_argument("--slice_axis", type=int, default=0)
     p.add_argument("--vmax_headroom", type=float, default=1.2)
@@ -116,14 +128,25 @@ def main():
 
     left_label = args.left_label or default_left_label
     right_label = args.right_label or default_right_label
-    old_cfg, new_cfg = CHECKPOINTS[old_key], CHECKPOINTS[new_key]
+    old_cfg, new_cfg = dict(CHECKPOINTS[old_key]), dict(CHECKPOINTS[new_key])
+    if args.fixed10_dirs:
+        old_cfg["denoised_dir"] = old_cfg["denoised_dir"] + "_fixed10"
+        new_cfg["denoised_dir"] = new_cfg["denoised_dir"] + "_fixed10"
 
     print(f"Dataset = {args.dataset}, data_dir = {data_dir}")
     print(f"  left  ({left_label}): {old_key} -> {old_cfg['denoised_dir']}")
     print(f"  right ({right_label}): {new_key} -> {new_cfg['denoised_dir']}")
 
-    representative = pick_representative_phantoms(args.split)
-    print(f"Representative phantoms ({args.split} split): {representative}")
+    if args.fixed_phantom is not None:
+        representative = pick_fixed_phantom(args.fixed_phantom)
+        print(f"[FIXED-PHANTOM MODE] Using phantom {args.fixed_phantom:04d} at all 5 alphas "
+              f"(--split={args.split} ignored)")
+        if not args.fixed10_dirs:
+            print("[warn] --fixed_phantom given without --fixed10_dirs -- denoised lookups "
+                  "for alphas other than 1p0 will likely 404")
+    else:
+        representative = pick_representative_phantoms(args.split)
+        print(f"Representative phantoms ({args.split} split): {representative}")
 
     # ---- Pass 1: load everything, compute shared scales ----
     rows = {}
@@ -239,7 +262,8 @@ def main():
     fig.colorbar(im_post, ax=axes[:, 5].tolist(), fraction=0.02, pad=0.02,
                  label="post-CNN error (shared, old & new)")
 
-    out_path = os.path.join(args.out_dir, f"full_comparison_{tag}_{args.dataset}_{args.split}.png")
+    split_tag = f"fixed10_p{args.fixed_phantom:04d}" if args.fixed_phantom is not None else args.split
+    out_path = os.path.join(args.out_dir, f"full_comparison_{tag}_{args.dataset}_{split_tag}.png")
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved {out_path}")
