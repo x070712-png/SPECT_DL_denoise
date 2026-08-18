@@ -217,3 +217,10 @@ __pycache__/
 .ipynb_checkpoints/
 
 logs/
+# scratch / run-time junk
+.DS_Store
+errors.txt
+info.txt
+warnings.txt
+tmp_*.hs
+tmp_*.s
