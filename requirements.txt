@@ -1,0 +1,18 @@
+# Python dependencies for SPECT_DL_denoise.
+#
+# SIRF (with the STIR backend) is NOT listed here -- it is a large
+# system-level package (compiled C++ core with a Python wrapper) that is
+# not distributed on PyPI. Install it separately via the official SIRF
+# SuperBuild / conda package / Docker image before installing the
+# packages below. See "Environment" in README.md.
+#
+# phantomgen (Stathis Varzakis's ellipsoid/EARL phantom generator) is
+# also not on PyPI -- install directly from its GitHub repo:
+#   pip install git+https://github.com/varzakis/phantomgen.git
+
+numpy
+torch
+monai
+matplotlib
+tqdm
+pytest

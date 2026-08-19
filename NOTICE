@@ -1,0 +1,15 @@
+Project: SPECT_DL_denoise
+Copyright (c) 2026 Xingyu Liu (University College London)
+
+Licensed under the Apache License, Version 2.0.
+
+This project adapts source code from Wei Miao's dissertation codebase,
+"Evaluating the Effectiveness of Denoising using Machine Learning in SPECT"
+(https://github.com/ucapwmi/SPECT_codes), Copyright (c) 2025 Wei Miao
+(University College London), also licensed under the Apache License,
+Version 2.0. See README.md's Acknowledgements section for which files
+this applies to.
+
+EARL/NEMA phantom geometry is generated using Stathis Varzakis's
+phantomgen package (https://github.com/varzakis/phantomgen), used as an
+external dependency and not redistributed as part of this repository.
