@@ -4,6 +4,18 @@
 INPUT (before any denoising) recover the true activity in each VOI,
 compared to what the model output will later be measured against?
 
+UPDATED 7/26 : recovery is now measured against the
+LABEL (the noise-free reconstruction the network was actually trained to
+reproduce), not the raw phantom ground truth. The network never sees
+ground truth, so scoring it against ground truth mixes in reconstruction-
+only bias (resolution blur / partial-volume effect, baked into the label
+already) with the network's own denoising error. This script now also
+reports the label-vs-ground-truth ratio separately, so the reconstruction-
+only bias can be seen on its own. See process_phantom()'s docstring for
+the full breakdown -- run this once with --input_prefix input (before
+CNN) and once with --input_prefix denoised (after CNN, needs
+run_inference_dump.py first) to get all three legs of the comparison.
+
 Needs no GPU, no checkpoint — data/dataset already has the noisy inputs
 on disk. Run on the login node:
 
@@ -15,6 +27,28 @@ on disk. Run on the login node:
 
 Reads phantom_idx/alpha pairs the same way SPECTDataset does (via
 build_split), so the CSV lines up with whatever split you point it at.
+
+UPDATED 7/19: two different questions need two different amounts of data,
+so this script now runs two passes over the dataset:
+
+  1. Combined-mask RC by alpha -- scoped to --split (val by default). This
+     is the "before denoising" baseline that will later be compared
+     directly against "after denoising" numbers computed on a trained
+     checkpoint, so it MUST stay on the same split (val/test) that the
+     model evaluation will use -- can't compare against train (the model
+     saw it during training) and shouldn't silently change the split the
+     baseline numbers were already reported on in the 7/13 meeting.
+
+  2. Per-ellipsoid RC grouped by size (both all-VOI and isolated-only
+     variants) -- pools ALL 500 phantoms (train+val+test), not just
+     --split. This isn't a model-evaluation question at all -- it's
+     asking whether the reconstruction pipeline itself has a structural
+     partial-volume-effect trend, which is a property of the phantom
+     generation + reconstruction, not of any train/val/test split. There's
+     no leakage concern (no model involved), so using all 500 just gives
+     more statistical power -- important since only ~9% of ellipsoids
+     turn out to be non-overlapping (see compute_isolation_flags), so the
+     isolated-only breakdown needs all the samples it can get.
 """
 
 import argparse
