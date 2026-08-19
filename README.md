@@ -255,30 +255,36 @@ python3 scripts/visualize_predictions.py \
 ```
 
 ### 5.5 Reproducing the EARL phantom results
-
+ 
 Same three-stage pattern (dump -> quantify -> visualise), for the EARL
-phantom's `bg0` background condition:
-
+phantom's `bg0` background condition. Note the explicit `--label_dir` on
+the quantify step below -- it defaults to `--data_dir`, but
+`run_inference_nema_earl.py` never copies `label.npy` into its `--out_dir`,
+so leaving it unset here (pointed at the CNN-output directory) would make
+every alpha print `[skip] ... missing .../label.npy` and produce an empty
+output CSV:
+ 
 ```bash
 python3 scripts/run_inference_nema_earl.py \
     --data_dir data/earl_dataset_v3_bg0 \
     --checkpoint checkpoints/3d_unet_xcat_finetune_label_alpha/best_model.pth \
     --model unet \
     --out_dir logs/denoised/3d_unet_xcat_labelalpha_earl_v3_bg0
-
+ 
 python3 scripts/quantify_nema_earl.py \
     --data_dir logs/denoised/3d_unet_xcat_labelalpha_earl_v3_bg0 \
+    --label_dir data/earl_dataset_v3_bg0 \
     --activity data/earl_phantom_v3_bg0/activity.npy \
     --sphere_dir data/earl_phantom_v3_bg0 \
     --sphere_prefix EARL_sphere_ \
     --input_prefix denoised \
     --out_csv logs/quant_earl_v3_bg0_3d_unet_labelalpha.csv
-
+ 
 python3 scripts/visualize_earl_predictions.py \
     --variant v3_bg0 \
     --checkpoint_key unet_xcat_labelalpha
 ```
-
+ 
 Swap `v3_bg0` / `earl_dataset_v3_bg0` / `earl_phantom_v3_bg0` for
 `v3_bg_ratio10` throughout to reproduce the 10:1 background condition
 instead. See `scripts/README.md` for every script's exact role and
