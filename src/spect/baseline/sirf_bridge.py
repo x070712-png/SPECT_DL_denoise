@@ -123,6 +123,13 @@ def acquire_data(
     clean_sino = acq_model.forward(phantom)
 
     # Apply Poisson noise in sinogram domain
+    # When uses the global (unseeded) np.random.poisson, not a seeded
+    # generator -- unlike generate_ellipsoids.py's phantom shapes, the
+    # noise realisation here is NOT reproducible across separate runs of
+    # the data-generation pipeline. Doesn't affect anything downstream of
+    # the already-generated .npy files (inference/quantification only
+    # read those, they never call this function), only "regenerate the
+    # dataset from scratch and get bit-identical noise" reproducibility.
     scaled = clean_sino.as_array() * alpha
     noisy_array = np.random.poisson(scaled).astype("float32")
     noisy_sino = clean_sino.clone()

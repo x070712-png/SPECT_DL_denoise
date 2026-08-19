@@ -1,131 +1,67 @@
 # src/spect/baseline/generate_earl_phantom.py
 """
 Generates the EARL evaluation phantom's activity map, attenuation map, and
-per-sphere VOI masks using Stathis's phantomgen package
-(https://github.com/varzakis/phantomgen), and JOINTLY CALIBRATES TWO
-parameters -- sphere activity concentration AND background activity
-concentration -- so that the CLEAN (noise-free) reconstructed image at
-alpha=1.0 matches the ellipsoid/XCAT training data on TWO statistics at
-once:
-  1. whole-volume mean          (target ~0.461, see NOTE below)
-  2. whole-volume max/mean ratio (target ~25.2, see NOTE below)
+per-sphere VOI masks using Stathis Varzakis's phantomgen package
+(https://github.com/varzakis/phantomgen).
 
-BACKGROUND (why a second parameter was needed, 8/7 finding): the first
-version of this script only calibrated sphere activity, matching the
-reconstructed image's mean to a target value -- but because the CNN's
-input normalisation is `inp / inp.mean()`, matching only the overall mean
-is INSUFFICIENT: multiplying the whole activity map (spheres AND
-background) by a constant leaves the normalised image completely
-unchanged, since the scale cancels out exactly in `inp / inp.mean()`.
-What actually matters for whether the network has seen anything like this
-image before is the SHAPE of the intensity distribution, not its overall
-scale. With EARL's background hard-set to 0 (phantomgen's default,
-possibly a simplification of the true EARL/NEMA IQ protocol, which
-typically has a non-zero background at some sphere:background ratio --
-worth confirming with Stathis), essentially all signal concentrates into
-6 small spheres, giving a whole-volume max/mean ratio of ~1170 -- vs ~25
-for the ellipsoid/XCAT training data. This ~46x shape mismatch is what
-caused the CNN (both U-Net and Swin, XCAT-finetune label-alpha
-checkpoints) to systematically under-recover EARL sphere activity by a
-size-dependent ~5-10x, REGARDLESS of alpha -- i.e. NOT a noise/count-level
-problem (which label x alpha already fixed), but a distinct
-geometric/distributional domain gap.
+WHAT'S ACTUALLY USED: the final EARL evaluation data comes from
+--calibration_mode fixed (v4): sphere_act_conc=126.457 fixed across both
+conditions, background_act_conc set explicitly to 0.0 (no background) or
+12.6457 (10:1 sphere:background) -- a direct comparison of two physically
+meaningful ratios, no calibration/solving involved.
 
-NOTE on target statistics: measured directly from the ellipsoid training
-data's CLEAN labels (data/dataset/alpha_1p0/label_*.npy, 20-sample check,
-8/7), NOT the noisy inputs (an earlier check used noisy input_*.npy,
-giving max/mean=45.16 -- inflated relative to the clean value because max
-is an extreme-value statistic that a single Poisson realisation can push
-up substantially; label_*.npy is consistent with this script's own
-noise-free calibration reconstructions):
+sphere_act_conc=126.457 was obtained separately, by running this script's
+other mode once (--calibration_mode joint, the default, calibrate_joint()
+below), which jointly solves for sphere AND background activity so the
+clean reconstructed image's whole-volume mean and max/mean ratio match
+target statistics from the ellipsoid/XCAT training data (see targets
+below). Only the solved sphere value was carried over into the fixed-mode
+runs above -- the background value joint mode solves for (84.4954) was
+NOT used in the final experiments; fixed mode's explicit ratios are a
+simpler, more direct comparison instead.
+
+Target statistics for joint mode, measured from the ellipsoid training
+data's CLEAN labels (data/dataset/alpha_1p0/label_*.npy, 20-sample check):
   whole-volume mean       = 0.461 +/- 0.118
   whole-volume max/mean   = 25.20 +/- 4.18
 
-CALIBRATION STRATEGY (v3, 8/7 -- replaces the nested-bisection v2
-approach, which got stuck oscillating and never converged): PROBE-AND-
-SOLVE. Sphere activity and background activity both affect the
-reconstructed mean, but only sphere activity meaningfully affects the
-max (background is far too dilute to create a new hottest voxel) --
-confirmed empirically from the v2 run's own log (background changing
-60x barely moved max: 531.25 -> 531.61). This means (mean, max) is
-approximately a LINEAR function of (sphere_conc, background_conc) over a
-reasonably local range, so:
-  1. Run 3 probe reconstructions to estimate the local Jacobian:
-     - (s0, 0)      -- baseline, s0 chosen s.t. mean(s0,0) ~= target_mean
-       (i.e. reuse the single-parameter v1/v2-style calibration first)
-     - (s1, 0)       -- perturb sphere only, to get d(mean)/d(sphere),
-       d(max)/d(sphere)
-     - (s0, b1)      -- perturb background only, to get d(mean)/d(bg),
-       d(max)/d(bg)
-  2. Solve the resulting 2x2 linear system directly for the (sphere, bg)
-     that hits (target_mean, target_mean*target_ratio) exactly (to first
-     order).
-  3. Run ONE confirmation reconstruction at the solved point; if still
-     outside tolerance, re-linearise around it and repeat (usually
-     converges in 1 extra step since the system is close to linear).
-This needs ~4-6 reconstructions total, vs up to 18 for the nested
-bisection, AND actually converges (the nested approach's outer/inner
-loops made contradictory assumptions about independence that broke down
-once background started dominating the mean -- see project log, 8/7).
+JOINT CALIBRATION (calibrate_joint / solve_joint): sphere activity affects
+both the reconstructed mean and max; background affects only the mean
+(too dilute to create a new hottest voxel). Treating (mean, max) as
+locally linear in (sphere_conc, background_conc), the script probes 3
+points to estimate the local Jacobian, then solves the resulting 2x2
+linear system directly for the (sphere, background) hitting both targets,
+confirming (and re-linearising if needed) at the solved point. This
+probe-and-solve approach replaced an earlier nested-bisection attempt
+that oscillated and never converged.
 
-"max" DEFINITION FIX (8/7, caught during review of the v2 log): "max" is
-now the max over sphere-mask voxels only, NOT whole-volume np.max(). The
-v2 log showed max staying frozen at an identical value across a ~3x
-sphere_conc change, which is more consistent with the global argmax
-sitting on a reconstruction/attenuation edge artifact than on real sphere
-signal once background is non-trivial. measure_clean_stats() now prints
-both the global max (with coordinates) and the sphere-restricted max, and
-flags explicitly if the global argmax falls outside every sphere mask.
-Caveat: the target ratio (25.20) was itself measured from the ellipsoid
-data's GLOBAL max, not a VOI-restricted max -- for ellipsoids this is
-very likely equivalent in practice (the ellipsoid VOIs are the brightest
-regions by construction, background is 0.1-0.5 vs VOI 1.0-5.0), but
-hasn't been explicitly re-verified; worth a quick sanity check later if
-time allows.
+"max" is always the max over sphere-mask voxels only, not whole-volume
+np.max() -- the global max can sit on a reconstruction/attenuation edge
+artifact rather than real sphere signal once background is non-trivial,
+which would corrupt the calibration. measure_clean_stats() restricts to
+the union of the 6 sphere masks and cross-checks against the global max
+so a mismatch is visible rather than silently corrupting results.
 
-FIXED MODE (v4, 8/10 -- Stathis's finding at the T3 meeting10 8/10
-meeting): the v2/v3 joint calibration above matches the ellipsoid
-training domain's intensity SHAPE (mean + max/mean ratio) by solving for
-a background activity of 84.4954 -- but Stathis pointed out this makes
-sphere:background only ~1.5:1, whereas a real EARL/NEMA IQ phantom
-protocol normally has NO background at all (spheres only) or, if
-non-zero, something like a 10:1 sphere:background ratio -- nothing close
-to 1.5:1. His hypothesis: this unrealistically strong background is what
-is causing the CNN's ~systematic, alpha-independent overestimation seen
-in the EARL v2 CNN-output RC numbers (quant_earl_v2_{unet,swin}_output),
-NOT a general CNN bias as originally written into the workbook notes.
-
-Fixed mode tests this directly: sphere_act_conc is kept at the ALREADY
-v2-calibrated value (126.457 by default -- Stathis's point was about
-background, not sphere activity), and background_act_conc is set
-EXPLICITLY (no solving) -- start with 0.0 (a "true" EARL phantom, no
-background at all), then optionally try intermediate ratios (e.g.
-sphere/10 = 12.6, for a 10:1 ratio) if time allows, per Stathis's
-suggested progression. No mean/ratio target-matching is involved here;
-whatever mean/max/ratio the reconstruction ends up with is simply
-reported (via measure_clean_stats' existing printout) for the record.
-
-Usage (v2/v3 joint calibration, unchanged, DEFAULT if --calibration_mode
-not given):
+Usage (fixed mode -- generates the final evaluation data):
     export PYTHONPATH=<repo_root>:$PYTHONPATH
-    python3 src/spect/baseline/generate_earl_phantom.py \
-        --out_dir data/earl_phantom_v2 \
-        --target_mean 0.461 \
-        --target_max_mean_ratio 25.20
-
-Usage (v4 fixed mode -- background=0 "true EARL" test):
     python3 src/spect/baseline/generate_earl_phantom.py \
         --out_dir data/earl_phantom_v3_bg0 \
         --calibration_mode fixed \
         --sphere_act_conc 126.457 \
         --background_act_conc 0.0
 
-Usage (v4 fixed mode -- 10:1 sphere:background ratio, if time allows):
     python3 src/spect/baseline/generate_earl_phantom.py \
         --out_dir data/earl_phantom_v3_bg_ratio10 \
         --calibration_mode fixed \
         --sphere_act_conc 126.457 \
         --background_act_conc 12.6457
+
+Usage (joint mode -- only to re-derive sphere_act_conc from scratch, not
+part of the final evaluation pipeline):
+    python3 src/spect/baseline/generate_earl_phantom.py \
+        --out_dir data/earl_phantom_v2 \
+        --target_mean 0.461 \
+        --target_max_mean_ratio 25.20
 
 Outputs (in --out_dir):
     activity.npy            -- calibrated activity map, (128,128,128)
@@ -193,22 +129,13 @@ def measure_clean_stats(sphere_act_conc, background_act_conc):
     overall scale (mean) and the intensity distribution SHAPE (max) against
     the ellipsoid/XCAT training data. No Poisson noise involved here.
 
-    IMPORTANT (8/7, bug caught by user review of the v2 log): "max" here is
-    NOT whole-volume np.max(). An earlier version used the global max, but
-    the v2 nested-bisection log showed a case (outer3: sphere_conc dropped
-    ~3x, from 184.626 to 65.1949) where the reported max stayed IDENTICAL
-    to 4 decimal places (21.9817) -- far too exact to be a real "barely
-    moved" case, and suspicious enough to suggest the global argmax voxel
-    wasn't inside a sphere at all (most likely a reconstruction/attenuation
-    -correction edge artifact at the phantom boundary, which doesn't scale
-    with sphere activity, and can end up hotter than a shrunk-down sphere
-    peak once background gets large). If that's what's happening, the
-    global max is not actually tracking sphere signal, which would corrupt
-    both the old bisection AND this script's own Jacobian probes.
-    Fix: restrict "max" to voxels inside the union of the 6 sphere masks
-    (the only physically meaningful definition of "peak sphere signal"),
-    and cross-check against the global max + its coordinates so a mismatch
-    is visible in the log rather than silently corrupting the calibration."""
+    "max" here is NOT whole-volume np.max(), but restricted to voxels
+    inside the union of the 6 sphere masks (the only physically
+    meaningful definition of "peak sphere signal") -- the global max can
+    sit on a reconstruction/attenuation edge artifact rather than real
+    sphere signal once background is non-trivial. Cross-checks against
+    the global max + its coordinates so a mismatch is visible in the log
+    rather than silently corrupting the calibration."""
     act_vol, ctac_vol, masks = generate_activity_and_umap(sphere_act_conc, background_act_conc)
     templ_sino = load_template_sinogram()
     umap = make_custom_umap(templ_sino, ctac_vol)
@@ -246,9 +173,8 @@ def measure_clean_stats(sphere_act_conc, background_act_conc):
 
 def calibrate_sphere_only(target_mean, init_sphere_act_conc=2.0, max_iters=4, tol=0.03):
     """Single-parameter ratio-scaling calibration (background fixed at 0)
-    -- same style as v1, used here just to get a sensible baseline probe
-    point s0 where mean(s0, 0) ~= target_mean before estimating the
-    Jacobian."""
+    -- used here just to get a sensible baseline probe point s0 where
+    mean(s0, 0) ~= target_mean before estimating the Jacobian."""
     s = init_sphere_act_conc
     mean = max_ = None
     for i in range(max_iters):
@@ -331,11 +257,11 @@ def calibrate_joint(target_mean, target_ratio, init_sphere_act_conc=2.0,
 
 
 def generate_fixed(sphere_act_conc, background_act_conc):
-    """v4 fixed mode (8/10, Stathis's finding): no calibration/solving at
-    all -- just generate + reconstruct at the EXPLICIT (sphere, background)
-    values given, so the resulting mean/max/ratio are whatever they turn
-    out to be (reported via measure_clean_stats' printout, not targeted).
-    Reuses measure_clean_stats() purely for its forward-project + OSEM
+    """v4 fixed mode: no calibration/solving at all -- just generate +
+    reconstruct at the EXPLICIT (sphere, background) values given, so the
+    resulting mean/max/ratio are whatever they turn out to be (reported
+    via measure_clean_stats' printout, not targeted). Reuses
+    measure_clean_stats() purely for its forward-project + OSEM
     reconstruct + sphere-restricted-max logic -- the calibration loop
     machinery (calibrate_sphere_only / calibrate_joint / solve_joint)
     isn't involved here at all."""
@@ -348,22 +274,18 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--out_dir", type=str, required=True)
     p.add_argument("--calibration_mode", type=str, default="joint", choices=["joint", "fixed"],
-                    help="'joint' (default, unchanged v2/v3 behaviour): solve for "
-                         "(sphere, background) to hit --target_mean/--target_max_mean_ratio. "
-                         "'fixed' (v4, 8/10 Stathis finding): skip all solving, generate "
-                         "directly at --sphere_act_conc/--background_act_conc as given -- "
-                         "use this to test whether a more realistic (near-zero) background "
-                         "removes the CNN-output overestimation seen with the joint-"
-                         "calibrated background of 84.4954.")
+                    help="'joint' (default): solve for (sphere, background) to hit "
+                         "--target_mean/--target_max_mean_ratio -- only needed to "
+                         "re-derive sphere_act_conc from scratch. 'fixed' (v4, what "
+                         "generates the final evaluation data): skip all solving, "
+                         "generate directly at --sphere_act_conc/--background_act_conc "
+                         "as given.")
     p.add_argument("--sphere_act_conc", type=float, default=126.457,
                     help="[fixed mode only] sphere activity concentration -- default is "
-                         "the already-solved v2 joint-calibration value, since Stathis's "
-                         "point was specifically about background, not sphere activity")
+                         "the value already solved via joint mode")
     p.add_argument("--background_act_conc", type=float, default=0.0,
                     help="[fixed mode only] background activity concentration -- default "
-                         "0.0 (a 'true' EARL phantom per Stathis, no background at all). "
-                         "Try e.g. sphere_act_conc/10 for a 10:1 sphere:background ratio "
-                         "as a follow-up test if time allows.")
+                         "0.0 (no background). Try sphere_act_conc/10 for a 10:1 ratio.")
     p.add_argument("--target_mean", type=float, default=0.461,
                     help="target WHOLE-VOLUME mean of the clean reconstructed image at "
                          "alpha=1.0 -- measured from ellipsoid CLEAN labels "

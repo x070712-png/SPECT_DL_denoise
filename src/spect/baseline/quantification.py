@@ -1,6 +1,8 @@
 # src/spect/baseline/quantification.py
 """
-VOI-based quantification utilities for the SPECT_DL_denoise contribution plan.
+VOI-based quantification utilities: recovery coefficient and bias against
+the known, designed activity of each ellipsoid VOI (not the reconstructed
+label image).
 
 Ground-truth VOI masks are derived from the ellipsoid parameters used
 to generate each phantom (center/radii from generate_ellipsoids.py), not
@@ -10,12 +12,10 @@ from the reconstructed label image. Two consequences:
      mask-building half of the pipeline doesn't need a model at all.
   2. The "true" activity used for recovery/bias calculations is the
      PHANTOM's designed activity, not the alpha=1.0 reconstruction — the
-     stricter of the two candidate ground-truth definitions. This also means any reconstruction-
-     level bias (e.g. from the OSEM subset/iteration mismatch or the
-     resolution-model-in-recon question flagged when comparing against
-     Wei Miao's thesis) will show up here too — which is exactly the kind
-     of thing this analysis is meant to catch, not something to work
-     around.
+     stricter of the two candidate ground-truth definitions. Any bias
+     introduced during reconstruction itself therefore still shows up in
+     these numbers, rather than being absorbed into what counts as
+     "ground truth".
 """
 
 import numpy as np
@@ -68,9 +68,8 @@ def build_voi_masks(phantom_idx, shape=(128, 128, 128), seed_base=42, cfg=CONFIG
 
     per_voi : list of dicts, one per ellipsoid — each has its own boolean
         mask plus the radii/intensity that generated it. Use this to group
-        VOIs by size (e.g. mean_radius_vox) and check whether small
-        targets recover worse than large ones — this is the evidence base
-        for the class-imbalance loss-function contribution direction.
+        VOIs by size (e.g. mean_radius_vox) and check whether recovery is
+        size-dependent (small VOIs recovering worse than large ones).
 
     background : the uniform background activity value for this phantom.
     """
@@ -96,7 +95,7 @@ def recovery_stats(volume, mask, true_value):
     """
     Given a reconstructed/denoised volume, a boolean VOI mask, and the
     known true activity for that VOI, return the standard recovery
-    metrics used in the contribution plan:
+    metrics used throughout this project:
 
       mean_recovery_coefficient = mean(volume[mask]) / true_value
       max_recovery_coefficient  = max(volume[mask])  / true_value
@@ -115,4 +114,3 @@ def recovery_stats(volume, mask, true_value):
         "bias_pct": (mean_val - true_value) / true_value * 100.0,
         "n_voxels": int(mask.sum()),
     }
-

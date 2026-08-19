@@ -1,7 +1,8 @@
 # src/spect/baseline/model.py
 
 #--------------------------------------------------------------------------
-# Copied verbatim from Wei Miao's original implementation:
+# Copied verbatim from Wei Miao's original implementation
+# (https://github.com/ucapwmi/SPECT_codes, models/Unet/model.py):
 # 3D U-Net baseline: 4-level encoder (32->64->128->256), bottleneck (512), symmetric decoder with skip connections, 1x1x1 output conv.
 #--------------------------------------------------------------------------
 
@@ -89,8 +90,13 @@ class CustomUNet3D(nn.Module):
 
 
 # --------------------------------------------------------------------------
-# Swin UNETR baseline copied verbatim from Wei Miao's.
-# Uses MONAI's built-in SwinUNETR directly (no custom architecture). 
+# Swin UNETR baseline copied verbatim from Wei Miao's original implementation
+# (https://github.com/ucapwmi/SPECT_codes, models/Swin_UNETR/model.py).
+# Uses MONAI's built-in SwinUNETR directly (no custom architecture). Merged
+# into this single model.py alongside CustomUNet3D above, rather than kept
+# as two separate files as in his repo, so this package has one file per
+# category (model, dataset, quantification, ...) instead of one per
+# architecture.
 # --------------------------------------------------------------------------
 def get_swin_unetr(device, roi_size=(128, 128, 128)):
     """Build SwinUNETR model. See config.py SWIN_UNETR_MODEL_CONFIG for
@@ -104,6 +110,3 @@ def get_swin_unetr(device, roi_size=(128, 128, 128)):
         use_v2=True,
     ).to(device)
     return model
- 
-
-

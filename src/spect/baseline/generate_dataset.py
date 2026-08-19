@@ -1,10 +1,22 @@
 # src/spect/baseline/generate_dataset.py
+"""
+Generates the full ellipsoid dataset: for each phantom, forward-project
++ OSEM-reconstruct a clean (alpha=1.0) label, then forward-project +
+reconstruct a noisy input at every count level in COUNT_LEVELS. Needs
+SIRF/STIR and a template sinogram (TEMPLATE_SINO_PATH) -- not runnable
+without those.
+
+Entry point is the __main__ block below, run as an SGE array job (see
+scripts/hpc/generate_data/submit_dataset.sh): each task handles
+PHANTOMS_PER_TASK phantoms, sliced out of NUM_PHANTOMS by task_idx, so the
+full dataset is generated in parallel across array-job tasks rather than
+one task doing all NUM_PHANTOMS sequentially.
+"""
 
 import os
 import numpy as np
-from pathlib import Path
 
-from src.spect.baseline.config import COUNT_LEVELS, OSEM_CONFIG
+from src.spect.baseline.config import COUNT_LEVELS
 from src.spect.baseline.generate_ellipsoids import generate_phantom
 from src.spect.baseline.sirf_bridge import (
     load_template_sinogram,
@@ -18,7 +30,13 @@ NUM_PHANTOMS = 500
 
 
 def generate_pair(phantom_idx: int, templ_sino, out_dir: str):
-
+    """
+    Generate and save one phantom's full set of (input, label) pairs:
+    one shared label (alpha=1.0 reconstruction), and one noisy input per
+    count level in COUNT_LEVELS. Skips any (phantom_idx, alpha) pair
+    whose files already exist, so an interrupted/re-run task resumes
+    instead of redoing completed work.
+    """
     phantom = generate_phantom(seed=42 + phantom_idx)
     print(f"[{phantom_idx:04d}] Phantom generated.")
 
@@ -54,20 +72,6 @@ def generate_pair(phantom_idx: int, templ_sino, out_dir: str):
     print(f"[{phantom_idx:04d}] ALL DONE.")
 
 
-def main():
-    import sirf.STIR as spect
-    spect.MessageRedirector('info.txt', 'warnings.txt', 'errors.txt')
-
-    templ_sino = load_template_sinogram(TEMPLATE_SINO_PATH)
-    print(f"Template loaded. Starting dataset generation...")
-    print(f"  {NUM_PHANTOMS} phantoms × {len(COUNT_LEVELS)} alpha levels")
-
-    for i in range(NUM_PHANTOMS):
-        generate_pair(i, templ_sino, OUT_DIR)
-
-    print("Dataset generation complete.")
-
-
 if __name__ == "__main__":
     import sys
     import sirf.STIR as spect
@@ -77,13 +81,16 @@ if __name__ == "__main__":
     start = task_idx * PHANTOMS_PER_TASK
     end = min(start + PHANTOMS_PER_TASK, NUM_PHANTOMS)
 
+    # logs/ must exist before MessageRedirector opens files inside it --
+    # on a fresh clone (no logs/ yet) this would otherwise crash before a
+    # single phantom is generated.
+    os.makedirs("logs", exist_ok=True)
     spect.MessageRedirector(
         f'logs/info_{task_idx}.txt',
         f'logs/warnings_{task_idx}.txt',
         f'logs/errors_{task_idx}.txt'
     )
 
-    os.makedirs("logs", exist_ok=True)
     templ_sino = load_template_sinogram(TEMPLATE_SINO_PATH)
 
     print(f"Starting task {task_idx}: phantoms {start} to {end-1}")
