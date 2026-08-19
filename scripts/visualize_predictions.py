@@ -135,8 +135,8 @@ def parse_args():
                     help="if given, show this SAME phantom index at all 5 alphas instead "
                          "of pick_representative_phantoms()'s one-different-phantom-per-"
                          "alpha choice -- matches the fixed-10-phantom x 5-alpha "
-                         "evaluation. Use an index in 90-99 (the fixed-10 set Table "
-                         "4.2/4.4 were regenerated on). MUST be paired with "
+                         "evaluation. Use an index in 90-99 (the range the fixed-10 "
+                         "comparison figures were regenerated on). MUST be paired with "
                          "--fixed10_dirs.")
     p.add_argument("--fixed10_dirs", action="store_true",
                     help="redirect every checkpoint's denoised_dir to the "
