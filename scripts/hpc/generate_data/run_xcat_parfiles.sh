@@ -1,5 +1,5 @@
 #!/bin/bash
-# scripts/run_xcat_parfiles.sh
+# scripts/hpc/generate_data/run_xcat_parfiles.sh
 #
 # Loops dxcat2 over every .par file generate_xcat_parfiles.py wrote, inside
 # the apptainer container. Bind pattern CONFIRMED from your own manual run:
@@ -19,7 +19,7 @@
 # won't see them.
 #
 # Usage:
-#   bash scripts/run_xcat_parfiles.sh xcat_phantom_manifest.csv
+#   bash scripts/hpc/generate_data/run_xcat_parfiles.sh xcat_phantom_manifest.csv
 
 set -euo pipefail
  

@@ -1,11 +1,11 @@
 #!/bin/bash -l
-# scripts/submit_train.sh
+# scripts/hpc/train/submit_train.sh
 #
 # GPU job submission script for Myriad (UCL Research Computing, SGE scheduler).
 # Based on: https://www.rc.ucl.ac.uk/docs/Example_Jobscripts/#gpu-job-script-example
 #           https://www.rc.ucl.ac.uk/docs/Supplementary/GPU_Nodes/
 #
-# Submit with:  qsub scripts/submit_train.sh
+# Submit with:  qsub scripts/hpc/train/submit_train.sh
 # Monitor with: qstat
 #
 # NOTE on wallclock time: Wei Miao's numbers (~1min15s/epoch, 150 epochs max,

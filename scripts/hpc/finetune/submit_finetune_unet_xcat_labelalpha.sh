@@ -1,5 +1,5 @@
 #!/bin/bash -l
-# scripts/submit_finetune_unet_xcat_labelalpha.sh
+# scripts/hpc/finetune/submit_finetune_unet_xcat_labelalpha.sh
 #
 # Fine-tunes the 3D U-Net LABEL-ALPHA-pretrained checkpoint on the
 # 500-phantom XCAT dataset -- keeps --scale_label_by_alpha ON throughout,
@@ -23,7 +23,7 @@
 # output to data/xcat_dataset in the same alpha_*/{input,label}_NNNN.npy
 # layout as data/dataset. Update if the actual path differs.
 #
-# Submit with: qsub scripts/submit_finetune_unet_xcat_labelalpha.sh
+# Submit with: qsub scripts/hpc/finetune/submit_finetune_unet_xcat_labelalpha.sh
 # Watch with:  qstat -u $(whoami)
 
 #$ -l gpu=1

@@ -1,14 +1,13 @@
 #!/bin/bash -l
-# scripts/submit_inference_earl_unet.sh
+# scripts/hpc/inference/submit_inference_earl_unet.sh
 #
 # Runs the U-Net XCAT-finetune LABEL-ALPHA checkpoint (best-performing
-# checkpoint per the ellipsoid + XCAT RC results, and the method Stathis
-# approved using exclusively for NEMA/EARL going forward) over the
-# 10-seed EARL dataset. Raw output is uncorrected label*alpha -- same
-# convention as everywhere else -- quantify_nema_earl.py's RC/alpha
-# column applies the correction.
+# checkpoint per the ellipsoid + XCAT RC results, and the checkpoint used
+# exclusively for NEMA/EARL going forward) over the 10-seed EARL dataset.
+# Raw output is uncorrected label*alpha -- same convention as everywhere
+# else -- quantify_nema_earl.py's RC/alpha column applies the correction.
 #
-# Submit with: qsub scripts/submit_inference_earl_unet.sh
+# Submit with: qsub scripts/hpc/inference/submit_inference_earl_unet.sh
 # Watch with:  qstat -u $(whoami)
 
 #$ -l gpu=1
