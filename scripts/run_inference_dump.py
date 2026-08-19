@@ -11,9 +11,15 @@ without any change to its quantification logic. This is what makes the
 -- identical masks, identical RC formula, only the array being measured
 differs.
 
-Same normalisation as train_unet.py / visualize_predictions.py: load npy,
-scale = input.mean(), normalise input, forward pass, restore to count
-domain by multiplying the output by that same scale.
+FIXED-PHANTOM MODE (--phantom_indices): instead of the usual --split-based
+(phantom_idx, alpha) pairing, run inference on the SAME fixed set of
+phantom indices at all 5 alphas -- matches a fixed-N-phantom x 5-alpha
+evaluation design, so the same phantoms can be compared like-for-like
+across noise realisations. Use indices from --split test's holdout range,
+which is unseen training data under every alpha. Output still goes to the
+normal --out_dir/alpha_*/ layout, so quantify_noisy_baseline.py's
+--phantom_indices flag (which mirrors this same idea) can read it back
+without any path changes.
 
 Needs GPU -- submit via qsub, don't run on the login node (see
 submit_inference_dump.sh).

@@ -1,23 +1,10 @@
 # scripts/plot_ellipsoid_phantom_example.py
 """
-Methods-section figure for 3.1.1 Ellipsoidal Phantom Dataset: one fixed
+Methods-section figure for the Ellipsoidal Phantom Dataset: one fixed
 phantom (--phantom_idx, default 0) shown as a clean label + all 5 noisy
 inputs side by side, to illustrate how OSEM reconstruction noise degrades
-as the count level alpha decreases -- extends Miao's Figure 2.1 (single
+as the count level alpha decreases. Extends Miao's Figure 2.1 (single
 count level) to show the full noise progression in one figure.
-
-Does NOT need SIRF/STIR -- reads the already-reconstructed .npy files
-straight off disk (data/dataset/alpha_*/{input,label}_{idx:04d}.npy), so
-this can run directly on the login node with a plain Python env
-(numpy + matplotlib only).
-
-NOTE: only the alpha level matching this phantom_idx's GROUP_TO_ALPHA
-assignment is actually used in the train/val/test split (dataset.py) --
-but generate_dataset.py originally wrote ALL 5 alpha versions for every
-phantom_idx to disk, so the other 4 are still there unless manually
-deleted. This figure uses all 5 purely to illustrate the noise model,
-independent of which single (phantom_idx, alpha) pair ended up in the
-actual training split.
 
 Usage (no PYTHONPATH / SIRF env needed):
     python3 scripts/plot_ellipsoid_phantom_example.py \

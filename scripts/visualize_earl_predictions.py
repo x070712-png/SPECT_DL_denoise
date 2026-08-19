@@ -3,7 +3,7 @@
 Qualitative comparison grid for the EARL physical phantom, one row per
 count level (alpha), same 5-column layout as visualize_predictions.py
 (Noisy input | Noisy-label diff | Model output | Output-label diff |
-Ground truth label) -- but for a SINGLE FIXED phantom across all 5 alphas
+Ground truth label). But for a SINGLE FIXED phantom across all 5 alphas
 (not a different representative ellipsoid per alpha), since EARL is one
 physical geometry evaluated at every count level.
 
@@ -11,8 +11,9 @@ Slice selection: EARL's spheres sit off-centre (ring_z=-37mm per the
 phantomgen dict), so the central slice of the volume would likely miss
 them. Instead this script finds the z-slice that maximises total sphere
 mask coverage (summed across all 6 EARL_sphere_*mm.npy masks) and uses
-that as the cross-section -- this is the "cross section over the spheres"
-Kris asked for at the 8/3 meeting.
+that as the cross-section. This is the "cross section over the spheres"
+version of central_slice() in visualize_predictions.py.-----have a test for this 
+in tests/test_visualize_earl_slice_selection.py, which uses tiny
 
 One representative seed is used for display (default 42) -- averaging
 across seeds would blur the noise texture that's actually relevant to
@@ -23,22 +24,21 @@ inspection only.
 Same alpha_correction handling as visualize_predictions.py: label×alpha
 checkpoints' raw saved output is ~true_scale*alpha, so it's divided by
 alpha before plotting/diffing. Only label×alpha checkpoints are used for
-EARL (per Stathis's 8/3 guidance -- old method isn't being evaluated on
-this data), so EARL_CHECKPOINTS below only has label×alpha entries.
+EARL (the old method isn't evaluated on this data), so EARL_CHECKPOINTS
+below only has label×alpha entries.
 
-NOISY-INPUT alpha-division (Kris, 8/3 meeting -- applies to EVERY
-checkpoint, NOT gated by alpha_correction): the raw noisy reconstruction
-is also naturally ~alpha x dimmer in absolute units at low alpha,
-independent of any training-target scaling -- the noisy sinogram is
-Poisson-thinned by alpha before reconstruction (see sirf_bridge.py's
-acquire_data()), so fewer total counts go into OSEM and the reconstructed
-image's overall intensity scales down roughly proportionally. The label
-is always full-scale (clean, alpha-independent), so comparing it against
-a raw noisy input that's ~alpha x dimmer makes the pre-CNN diff panel
-balloon at low alpha for a reason that has nothing to do with noise --
-just a scale mismatch. Dividing the noisy input by alpha for display
-(both its own panel and the pre-CNN diff) removes this, applied uniformly
-to every checkpoint/row.
+NOISY-INPUT alpha-division (applies to EVERY checkpoint, NOT gated by
+alpha_correction): the raw noisy reconstruction is also naturally ~alpha x
+dimmer in absolute units at low alpha, independent of any training-target
+scaling -- the noisy sinogram is Poisson-thinned by alpha before
+reconstruction (see sirf_bridge.py's acquire_data()), so fewer total
+counts go into OSEM and the reconstructed image's overall intensity
+scales down roughly proportionally. The label is always full-scale
+(clean, alpha-independent), so comparing it against a raw noisy input
+that's ~alpha x dimmer makes the pre-CNN diff panel balloon at low alpha
+for a reason that has nothing to do with noise.
+Dividing the noisy input by alpha for display (both its own panel and the
+pre-CNN diff) removes this, applied uniformly to every checkpoint/row.
 
 Usage:
     export PYTHONPATH=src:$PYTHONPATH
@@ -61,12 +61,12 @@ ALPHAS_ORDERED = [1.0, 0.5, 0.25, 0.125, 0.05]
 SPHERE_DIAMETERS_MM = [13, 17, 22, 28, 37, 60]
 SPHERE_PREFIX = "EARL_sphere_"
 
-# Three background variants of the EARL phantom (see meeting10 -- bg0 is
-# Stathis's "true EARL/NEMA" definition (background=0.0), bg_ratio10 is the
-# 10:1 sphere:background intermediate test point, v2 is the older jointly-
-# calibrated "modified NEMA" dataset). Paths confirmed via
-# `ls logs/denoised/ | grep earl` and `ls data/ | grep earl` on the cluster
-# -- NOT guessed.
+# Three background variants of the EARL phantom: bg0 is the "true
+# EARL/NEMA" definition (background=0.0), bg_ratio10 is the 10:1
+# sphere:background intermediate test point, v2 is the older jointly-
+# calibrated "modified NEMA" dataset. Paths confirmed via
+# `ls logs/denoised/ | grep earl` and `ls data/ | grep earl` on the
+# cluster -- NOT guessed.
 EARL_VARIANTS = {
     "v2": {
         "data_dir": "data/earl_dataset_v2",
@@ -178,9 +178,9 @@ def main():
 
     z = find_sphere_slice(sphere_dir)
 
-    # ---- Pass 1: load everything, compute global scales (same design as
+    # Pass 1: load everything, compute global scales (same design as
     # visualize_predictions.py -- separate pre-CNN / post-CNN diff scales,
-    # shared intensity scale, all computed BEFORE any plotting) ----
+    # shared intensity scale, all computed BEFORE any plotting)
     loaded = {}
     all_intensity_vals = []
     all_diff_pre_vals = []
@@ -202,7 +202,7 @@ def main():
             # total counts went into OSEM) -- divide by alpha for display,
             # uniformly across EVERY checkpoint (not gated by
             # alpha_correction below), so it is comparable to the always-
-            # full-scale label (Kris, 8/3 meeting; see module docstring)
+            # full-scale label (see module docstring)
             inp = inp / alpha
             if checkpoints[key]["alpha_correction"]:
                 den = den / alpha

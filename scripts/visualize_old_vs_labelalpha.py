@@ -1,16 +1,16 @@
 # scripts/visualize_old_vs_labelalpha.py
 """
-Compact "old-method vs label x alpha" comparison figure, for Section 4.3.
+Compact "old-method(baseline) vs label x alpha" comparison figure.
 
-Rationale: 4.2 already shows the full 5-column layout (noisy input,
-pre-CNN diff, model output, post-CNN diff, ground truth) for the baseline
-formulation, on the same 5 representative phantoms (one per alpha level).
-Noisy input / pre-CNN diff / ground truth do NOT depend on which
-checkpoint denoised the data -- they're the same images whether you're
-looking at the old-method or label x alpha output. Repeating all 5
-columns again in 4.3 to show the correction is therefore redundant and
-makes new-vs-old harder to compare (reader has to flip between two
-separate 5-column figures).
+Rationale: the standard 5-column layout (noisy input, pre-CNN diff, model
+output, post-CNN diff, ground truth) is already shown separately for the
+baseline formulation, on the same 5 representative phantoms (one per
+alpha level). Noisy input / pre-CNN diff / ground truth do NOT depend on
+which checkpoint denoised the data -- they're the same images whether
+you're looking at the old-method or label x alpha output. Repeating all 5
+columns again to show the correction is therefore redundant and makes
+new-vs-old harder to compare (reader has to flip between two separate
+5-column figures).
 
 This script instead produces ONE 4-column x 5-row figure per architecture:
 
@@ -21,13 +21,13 @@ two ERROR (post-CNN diff) columns sharing one diff colour scale -- this
 is required, not optional: once old and new are side by side in the same
 figure, a reader will visually compare "how red/blue" each panel is, and
 that comparison is only valid if both diff panels are on the identical
-scale. (Mirrors the shared-scale requirement from the 8/X supervisor
-meeting, applied within this one figure rather than across all figures.)
+scale (same shared-scale requirement as the other qualitative scripts,
+applied within this one figure rather than across all figures).
 
-4.2's two 5-column figures are untouched -- they still need the full
+The full 5-column figures are untouched -- they still need the full
 context since they're the reader's first exposure to this qualitative
-comparison. This script only replaces what would otherwise have been
-4.3's 5-column figures.
+comparison. This script only replaces what would otherwise have been a
+second pair of 5-column figures just to show the old-vs-new correction.
 
 Reads the SAME already-dumped denoised .npy files as visualize_predictions.py
 (via run_inference_dump.py) -- no torch/GPU needed, safe on the login node.
@@ -77,9 +77,9 @@ def parse_args():
     p.add_argument("--fixed_phantom", type=int, default=None,
                     help="if given, show this SAME phantom index at all 5 alphas instead of "
                          "pick_representative_phantoms()'s one-different-phantom-per-alpha "
-                         "choice -- matches the fixed-10-phantom x 5-alpha evaluation "
-                         "(Stathis, 8/14 review). Use an index in 90-99. MUST be paired with "
-                         "--fixed10_dirs. See visualize_predictions.py's pick_fixed_phantom().")
+                         "choice -- matches the fixed-10-phantom x 5-alpha evaluation. Use "
+                         "an index in 90-99. MUST be paired with --fixed10_dirs. See "
+                         "visualize_predictions.py's pick_fixed_phantom().")
     p.add_argument("--fixed10_dirs", action="store_true",
                     help="redirect both checkpoints' denoised_dir to the '<denoised_dir>_fixed10' "
                          "variant produced by run_inference_dump.py --phantom_indices 90,...,99 "

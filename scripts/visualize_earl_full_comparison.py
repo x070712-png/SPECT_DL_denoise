@@ -8,11 +8,6 @@ which architecture denoised the data), so U-Net and Swin's outputs and
 post-CNN errors can go side by side in one 7-column figure instead of two
 separate 5-column ones.
 
-NOTE: unlike the ellipsoid/XCAT comparison scripts, there is no old-method
-checkpoint to compare against here -- per Stathis's 8/3 guidance, only the
-label x alpha checkpoints were ever run on EARL. So this script compares
-the two ARCHITECTURES (both label x alpha) rather than old-vs-new.
-
 Columns (5 rows, one per alpha level):
 
     [ Noisy input | Pre-CNN error | U-Net output | U-Net error |
@@ -22,8 +17,8 @@ Shared colour scales:
   - ONE intensity scale across noisy input / U-Net output / Swin output /
     ground truth.
   - ONE pre-CNN diff scale.
-  - ONE post-CNN diff scale shared between U-Net error AND Swin error --
-    required once they're side by side, same reasoning as the other
+  - ONE post-CNN diff scale shared between U-Net error AND Swin error.
+    It required once when they're side by side, same reasoning as the other
     comparison scripts.
 
 Single representative seed (default 42), same z-slice selection (max

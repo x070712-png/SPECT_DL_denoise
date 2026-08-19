@@ -8,8 +8,8 @@ activity values baked into each phantom's ORIGINAL XCAT activity map
 xcat_dataset_manifest.csv), NOT from regenerating a random ellipsoid via
 a seed.
 
-WHY THIS SCRIPT EXISTS (8/10-8/11 finding): quantify_noisy_baseline.py's
-VOI masks come from build_voi_masks() -> get_phantom_ellipsoids() ->
+quantify_noisy_baseline.py's VOI masks come from build_voi_masks() -> 
+get_phantom_ellipsoids() ->
 generate_ellipsoids.generate_phantom(seed=seed_base+phantom_idx, ...),
 which REGENERATES A FRESH, UNRELATED RANDOM ELLIPSOID PHANTOM at that
 phantom_idx. Pointing --data_dir at data/xcat_dataset (or an XCAT
@@ -20,7 +20,7 @@ numbers previously computed this way (e.g.
 quant_unet_xcat_labelalpha_output_test.csv) are INVALID and should be
 discarded, not just re-organised.
 
-VERIFIED (8/11): XCAT's raw activity phantom IS piecewise-constant by
+VERIFIED: XCAT's raw activity phantom IS piecewise-constant by
 tissue/organ -- e.g. phantom_idx=90 has only 58 unique values across the
 whole 128^3 volume (0.0 = background/air, ~79.7% of voxels; 57 distinct
 nonzero tissue/organ activity concentrations, from
@@ -112,10 +112,7 @@ def process_phantom(phantom_idx, alpha_str, data_dir, manifest_paths, verbose=Tr
     docstring for the recon_rc / mean_rc / mean_rc_over_alpha definitions,
     identical here except true_val_gt is now an EXACT value (the raw
     activity concentration itself) rather than an approximation.
-
-    Returns (combined_row, per_voi_entries). combined_row is None if any
-    required file is missing; per_voi_entries is always a list (possibly
-    empty, if every tissue region is smaller than min_voi_voxels)."""
+    """
     if label_dir is None:
         label_dir = data_dir
     inp_path = os.path.join(data_dir, f"alpha_{alpha_str}", f"{input_prefix}_{phantom_idx:04d}.npy")
@@ -218,6 +215,7 @@ def print_size_binned_summary(title, entries, n_size_bins):
     """Equal-COUNT bins by n_voxels (real tissue-region size), same
     equal-count-bin approach as quantify_noisy_baseline.py's version, just
     keyed on n_voxels directly instead of a randomised ellipsoid radius."""
+    
     print(f"\n=== {title} ===")
     if not entries:
         print("  (no entries)")

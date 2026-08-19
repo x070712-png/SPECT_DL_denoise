@@ -1,12 +1,12 @@
 # scripts/plot_earl_phantom_example.py
 """
-Methods-section figure for 3.1.3 EARL Phantom Dataset: the single EARL
+Methods-section figure for the EARL Phantom Dataset: the single EARL
 phantom shown as clean label + all 5 alpha noisy inputs, same 2x3 grid
-layout as plot_ellipsoid_phantom_example.py (Figure 3.1) -- unlike XCAT,
-EARL genuinely has all 5 alpha versions of the SAME underlying activity
-map (generate_eval_phantom_dataset.py forward-projects the one
-calibrated phantom at all 5 count levels), so the "same phantom, noise
-degrading across count levels" story applies here too.
+layout as plot_ellipsoid_phantom_example.py. Unlike XCAT, EARL genuinely
+has all 5 alpha versions of the SAME underlying activity map
+(generate_eval_phantom_dataset.py forward-projects the one calibrated
+phantom at all 5 count levels), so the "same phantom, noise degrading
+across count levels" story applies here too.
 
 Two things this does differently from plot_ellipsoid_phantom_example.py:
   1. Slice selection: EARL's spheres sit off-centre (ring_z=-37mm per
@@ -20,10 +20,6 @@ Two things this does differently from plot_ellipsoid_phantom_example.py:
      the reconstructed activity is genuinely ~20x lower in absolute
      units than the alpha=1.0 label, so a shared scale calibrated to
      the label would crush the low-alpha panels to near-black.
-
-Does NOT need SIRF/STIR -- reads the already-reconstructed .npy files
-and the sphere mask .npy files directly off disk, runs on the login
-node with plain numpy + matplotlib.
 
 Usage:
     python3 scripts/plot_earl_phantom_example.py \
