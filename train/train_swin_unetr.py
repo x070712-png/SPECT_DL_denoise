@@ -1,16 +1,16 @@
-# scripts/train_swin_unetr.py
+# train/train_swin_unetr.py
 """
 Swin UNETR (Wei Miao baseline) pre-training on the 500-ellipsoid dataset.
 
-Adapted from Wei Miao's experiments/Swin_UNETR/pre_training/train.py (read
-directly from the SPECT_codes GitHub repo, same as the U-Net port). Same
-substitution as train_unet.py: his make_data_list_pre_training() + MONAI
-CacheDataset pipeline is replaced with SPECTDataset(data_dir, split), and
-the SaveMeand/DivideByScaled normalisation his transform pipeline would
-otherwise handle is done explicitly here -- IDENTICAL logic to train_unet.py
-(mean_volume_scale from the noisy input + combined_loss's own internal
-peak renorm), because both his U-Net and Swin UNETR scripts share the same
-core/transforms.py and core/metrics.py.
+Adapted from Wei Miao's experiments/Swin_UNETR/pre_training/train.py, from
+his SPECT_codes GitHub repo (https://github.com/ucapwmi/SPECT_codes) --
+same source repo as the U-Net port. Same substitution as train_unet.py: his
+make_data_list_pre_training() + MONAI CacheDataset pipeline is replaced with
+SPECTDataset(data_dir, split), and the SaveMeand/DivideByScaled normalisation
+his transform pipeline would otherwise handle is done explicitly here --
+IDENTICAL logic to train_unet.py (mean_volume_scale from the noisy input and
+combined_loss's own internal peak renorm), because both his U-Net and Swin
+UNETR scripts share the same core/transforms.py and core/metrics.py.
 
 --init_checkpoint (NEW): optional path to a pretrained .pth to load into the
 model before training starts, for fine-tuning on a different dataset (e.g.
@@ -116,7 +116,10 @@ def main():
     ssim_loss_train = SSIMLoss(spatial_dims=3, data_range=1.0, win_size=5, reduction="mean")
     ssim_metric_eval = SSIMLoss(spatial_dims=3, data_range=1.0, win_size=7, reduction="mean")
 
-    # ---- SAME normalisation as train_unet.py -- his core/transforms.py
+    # Same mean/peak normalisation as train_unet.py's combined_loss() and
+    # compute_psnr() -- see their docstrings there for the full rationale.
+    # Both are derived from Wei Miao's core/transforms.py and core/metrics.py
+    # (https://github.com/ucapwmi/SPECT_codes).
 
     def combined_loss(pred_cnt, gt_cnt, alpha=0.5, eps=1e-8):
         peak = gt_cnt.view(gt_cnt.size(0), -1).amax(dim=1).clamp(min=eps).view(-1, 1, 1, 1, 1)

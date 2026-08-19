@@ -1,3 +1,17 @@
+# src/spect/baseline/dataset.py
+"""
+PyTorch Dataset for the ellipsoid/XCAT SPECT data. Reads pre-generated
+(noisy input, clean label) volume pairs from data_dir, organised into
+per-alpha subfolders (alpha_1p0/, alpha_0p5/, ...), and applies the
+per-volume mean normalisation needed before feeding into the model.
+
+build_split() defines the fixed train/val/test partition and is also
+imported directly (without SPECTDataset) by scripts that need the same
+(phantom_idx, alpha) pairing without loading the actual arrays, e.g.
+run_inference_dump.py, quantify_noisy_baseline.py, quantify_xcat.py,
+visualize_predictions.py.
+"""
+
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -75,6 +89,14 @@ def build_train_augmentation():
     ])
 
 class SPECTDataset(Dataset):
+    """
+    Loads (input, label, scale) triples for one split. Missing or
+    truncated files (below 1MB) are skipped with a warning rather than
+    raising, so a partial/sample dataset still loads whatever is present
+    (see build_split() docstring for how phantom_idx/alpha pairs are
+    generated for each split).
+    """
+
     def __init__(self, data_dir, split, scale_label_by_alpha=False):
         self.data_dir = Path(data_dir)
         self.split = split
@@ -112,6 +134,27 @@ class SPECTDataset(Dataset):
         return len(self.samples)
  
     def __getitem__(self, idx):
+        """
+        Returns (input, label, scale), all as (1, D, H, W) float32 tensors
+        except scale (scalar). Normalisation is two stages, split across
+        this codebase:
+
+        Stage 1 (here): mean normalisation. Both input and label are
+        divided by the noisy input's own mean, so the model always sees
+        inputs of a similar scale regardless of alpha. scale is returned
+        so callers can undo this and get back to true count-domain values
+        (e.g. train_unet.py, run_inference_dump.py both do
+        `x_cnt = x_normalised * scale`).
+
+        Stage 2 (elsewhere, e.g. combined_loss() in train_unet.py): a
+        second, peak-based normalisation applied on top of stage 1's
+        output, specifically for the loss/metric computation.
+
+        If scale_label_by_alpha is set, the label is additionally scaled
+        by the known alpha value -- an alternative training target where
+        the model must also learn to predict the count-level scaling
+        rather than just the denoised shape.
+        """
         inp_path, lbl_path, alpha_str = self.samples[idx]
         inp = np.load(inp_path).astype(np.float32)
         lbl = np.load(lbl_path).astype(np.float32)

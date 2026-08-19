@@ -3,9 +3,10 @@
 Forward-project + OSEM-reconstruct a SINGLE fixed evaluation phantom
 (NEMA or EARL) across all count levels, using its own REAL attenuation
 map -- NOT the uniform mu=0.12 used for the virtual ellipsoid training
-data. Per Stathis (30 Jul email): "You should only use the uniform
-attenuation map with your virtual ellipsoid phantoms" -- NEMA/EARL/
-clinical should all use their own provided attenuation maps.
+data. NEMA/EARL/clinical phantoms should use their own provided
+attenuation maps rather than the uniform one, since they are real
+physical objects rather than the synthetic ellipsoid geometry the
+uniform map was chosen for.
 
 Unlike generate_xcat_dataset.py (500 DIFFERENT phantoms, one alpha each,
 for fine-tuning), NEMA/EARL are each a SINGLE fixed physical phantom used
@@ -13,9 +14,9 @@ for EVALUATION -- so this script runs the same phantom through every
 count level in COUNT_LEVELS (not just one), to characterise CNN
 performance across the full noise range on a known-geometry object.
 
-Voxel size confirmed 4.42mm isotropic for NEMA/EARL/clinical (Stathis, 30
-Jul) -- matches PHANTOM_CONFIG exactly, so NO resampling needed, the
-raw .npy arrays go straight into sirf_bridge.py as-is.
+Voxel size is 4.42mm isotropic for NEMA/EARL/clinical, matching
+PHANTOM_CONFIG exactly, so NO resampling is needed -- the raw .npy
+arrays go straight into sirf_bridge.py as-is.
 
 Sphere masks (NEMA_sphere_10mm.npy etc.) are NOT touched by this script --
 they don't need forward-projecting, they're VOIs used later at
@@ -38,7 +39,7 @@ from src.spect.baseline.sirf_bridge import (
     make_custom_umap,
 )
 
-VOLUME_SHAPE = (128, 128, 128)  # confirmed by Stathis: 4.42mm isotropic, no resampling needed
+VOLUME_SHAPE = (128, 128, 128)  # 4.42mm isotropic, no resampling needed
 
 # same folder-name-safe encoding as the ellipsoid/XCAT pipeline
 ALPHA_STR = {1.0: "1p0", 0.5: "0p5", 0.25: "0p25", 0.125: "0p125", 0.05: "0p05"}

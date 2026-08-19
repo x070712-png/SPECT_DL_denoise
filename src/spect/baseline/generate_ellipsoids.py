@@ -1,8 +1,13 @@
 # src/spect/baseline/generate_ellipsoids.py
+"""
+Generates one synthetic phantom volume: a uniform cylindrical background
+with a random number of overlapping ellipsoids of varying size/intensity
+placed inside it. Used as the "ground truth" activity map before forward
+projection + reconstruction (see generate_dataset.py, which calls
+generate_phantom() as its first step for each phantom).
+"""
 
-import os
 import numpy as np
-import matplotlib.pyplot as plt
 
 CONFIG = {
     "shape": (128, 128, 128),
@@ -16,6 +21,12 @@ CONFIG = {
 
 
 def cylindrical_mask(shape, radius_mm, pixel_size_mm):
+    """
+    Boolean mask (True inside the FOV), a cylinder of the given radius
+    running the full length of the D axis, centered on the H/W plane.
+    Used both to constrain where ellipsoids can be placed and to zero out
+    everything outside the FOV in the finished phantom.
+    """
     D, H, W = shape
     radius_vox = radius_mm / pixel_size_mm
 
@@ -28,6 +39,15 @@ def cylindrical_mask(shape, radius_mm, pixel_size_mm):
 
 
 def add_random_ellipsoid(volume, mask, rng, cfg, params_list=None):
+    """
+    Draws one random ellipsoid (random radii, intensity, and a center
+    point resampled up to 100 times until it falls inside the cylindrical
+    mask) and adds its intensity to volume in place. If params_list is
+    given, appends a dict recording exactly what was drawn (center, radii,
+    intensity, bounding box) -- used by quantification.py's
+    ellipsoid_mask() to rebuild the same VOI mask later without needing to
+    re-run the random draw.
+    """
     D, H, W = volume.shape
 
     rx, ry, rz = rng.uniform(*cfg["radius_range"], size=3)
@@ -71,6 +91,14 @@ def add_random_ellipsoid(volume, mask, rng, cfg, params_list=None):
 
 
 def generate_phantom(seed=42, cfg=CONFIG, return_params=False):
+    """
+    Build one phantom volume: uniform background inside the cylindrical
+    FOV, plus a Poisson-random number of overlapping random ellipsoids.
+    Deterministic given seed. If return_params is True, also returns the
+    background value and the full list of ellipsoid parameters actually
+    drawn (needed to rebuild ground-truth VOI masks later without
+    re-simulating).
+    """
     rng = np.random.default_rng(seed)
  
     mask = cylindrical_mask(
@@ -95,43 +123,3 @@ def generate_phantom(seed=42, cfg=CONFIG, return_params=False):
     if return_params:
         return volume, {"background": float(bg), "ellipsoids": params_list}
     return volume
-
-
-
-def save_preview(volume, path):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-
-    D, H, W = volume.shape
-    slices = [
-        volume[D // 2],
-        volume[:, H // 2, :],
-        volume[:, :, W // 2],
-    ]
-
-    titles = ["Axial", "Coronal", "Sagittal"]
-
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-
-    for ax, sl, title in zip(axes, slices, titles):
-        im = ax.imshow(sl, cmap="hot", origin="lower")
-        ax.set_title(title)
-        ax.axis("off")
-        fig.colorbar(im, ax=ax)
-
-    plt.tight_layout()
-    plt.savefig(path, dpi=150)
-    plt.close()
-
-
-if __name__ == "__main__":
-    base = os.path.dirname(os.path.abspath(__file__))
-    out_dir = os.path.normpath(os.path.join(base, "../../../outputs/phantoms_500"))
-    os.makedirs(out_dir, exist_ok=True)
-    for i in range(500):
-        vol = generate_phantom(seed=42 + i)
-        np.save(f"{out_dir}/phantom_{i:03d}.npy", vol)
-        if i < 5:   # only save preview for the first 5 phantoms to avoid clutter
-            save_preview(vol, f"{out_dir}/phantom_{i:03d}.png")
-        if (i + 1) % 50 == 0:
-            print(f"{i+1}/500 done")
-    print(f"Saved 500 phantoms to {out_dir}")

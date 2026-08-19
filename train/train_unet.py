@@ -1,4 +1,4 @@
-# scripts/train_unet.py
+# train/train_unet.py
 """
 3D U-Net (Wei Miao baseline) pre-training on the 500-ellipsoid dataset.
 
@@ -119,11 +119,12 @@ def main():
  
  
     def combined_loss(pred_cnt, gt_cnt, alpha=0.5, eps=1e-8):
-        """Matches core/metrics.py combined_loss() exactly: takes tensors
-        that are ALREADY mean-normalised (stage 1 applied), and does its
-        own internal peak normalisation (stage 2) here -- peak = per-volume
-        max of gt_cnt, freshly computed on the mean-normalised label -- before
-        computing 0.5*MSE + 0.5*SSIM(win=5)."""
+        """Matches combined_loss() in Wei Miao's original implementation
+        (core/metrics.py, https://github.com/ucapwmi/SPECT_codes) exactly:
+        takes tensors that are ALREADY mean-normalised (stage 1 applied),
+        and does its own internal peak normalisation (stage 2) here -- peak
+        = per-volume max of gt_cnt, freshly computed on the mean-normalised
+        label -- before computing 0.5*MSE + 0.5*SSIM(win=5)."""
         peak = gt_cnt.view(gt_cnt.size(0), -1).amax(dim=1).clamp(min=eps).view(-1, 1, 1, 1, 1)
         pred_norm = pred_cnt / peak
         gt_norm = gt_cnt / peak
@@ -132,10 +133,13 @@ def main():
         return alpha * mse_part + (1 - alpha) * ssim_part
  
     def compute_psnr(pred_cnt, tgt_cnt, eps=1e-8):
-        """Unchanged: operates on restored count-domain tensors, does its
-        own internal peak normalisation (matches compute_psnr_volume in
-        core/metrics.py) -- independent of which scale was used to get to
-        count-domain in the first place."""
+        """Same formula as compute_psnr_volume() in Wei Miao's original
+        implementation (core/metrics.py, https://github.com/ucapwmi/SPECT_codes):
+        operates on restored count-domain tensors, does its own internal peak
+        normalisation -- independent of which scale was used to get to
+        count-domain in the first place. Reimplemented here as a batched
+        torch version (Wei Miao's original runs per-sample on numpy arrays)
+        so it can be called once per validation batch."""
         peak = tgt_cnt.amax(dim=tuple(range(1, tgt_cnt.dim()))).view(-1, 1, 1, 1, 1) + eps
         pred_n, tgt_n = pred_cnt / peak, tgt_cnt / peak
         mse = torch.mean((pred_n - tgt_n) ** 2, dim=list(range(1, tgt_n.dim())))
