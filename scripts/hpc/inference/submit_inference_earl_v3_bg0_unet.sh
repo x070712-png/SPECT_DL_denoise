@@ -1,14 +1,14 @@
 #!/bin/bash -l
-# scripts/submit_inference_earl_v3_bg0_unet.sh
+# scripts/hpc/inference/submit_inference_earl_v3_bg0_unet.sh
 #
 # Runs the U-Net XCAT-finetune LABEL-ALPHA checkpoint over the 10-seed
 # EARL v3-bg0 dataset (data/earl_dataset_v3_bg0 -- SAME sphere activity as
 # v2 (126.457), background set to 0.0 instead of v2's joint-calibrated
-# 84.4954, per Stathis's 8/10 finding that v2's background was ~1.5:1
-# sphere:background, unrealistic for a real EARL/NEMA IQ phantom). See
+# 84.4954, since v2's background gave only a ~1.5:1 sphere:background
+# ratio, unrealistic for a real EARL/NEMA IQ phantom). See
 # generate_earl_phantom.py's "FIXED MODE" docstring.
 #
-# Submit with: qsub scripts/submit_inference_earl_v3_bg0_unet.sh
+# Submit with: qsub scripts/hpc/inference/submit_inference_earl_v3_bg0_unet.sh
 # Watch with:  qstat -u $(whoami)
 
 #$ -l gpu=1

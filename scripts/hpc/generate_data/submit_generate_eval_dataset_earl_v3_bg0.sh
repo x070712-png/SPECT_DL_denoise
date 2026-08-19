@@ -1,19 +1,19 @@
 #!/bin/bash -l
-# scripts/submit_generate_eval_dataset_earl_v3_bg0.sh
+# scripts/hpc/generate_data/submit_generate_eval_dataset_earl_v3_bg0.sh
 #
 # Generates the 10-seed EARL v3-bg0 dataset from the FIXED-mode phantom
-# (sphere_conc=126.457 -- same as v2 -- background_conc=0.0, per
-# Stathis's 8/10 finding that v2's joint-calibrated background (84.4954,
-# only ~1.5:1 sphere:background) is unrealistic for a real EARL/NEMA IQ
-# phantom -- see generate_earl_phantom.py / submit_generate_earl_phantom_
-# v3_bg0.sh). This background=0 phantom reproduces the original v1-style
-# domain gap at the clean-reconstruction level (mean=0.0096, max/mean
-# ratio=1152.38), so it's an open question what the CNN does with it --
-# that's the point of this test.
+# (sphere_conc=126.457 -- same as v2 -- background_conc=0.0, since v2's
+# joint-calibrated background (84.4954, only ~1.5:1 sphere:background) is
+# unrealistic for a real EARL/NEMA IQ phantom -- see
+# generate_earl_phantom.py / submit_generate_earl_phantom_v3_bg0.sh).
+# This background=0 phantom reproduces the original v1-style domain gap
+# at the clean-reconstruction level (mean=0.0096, max/mean ratio=1152.38),
+# so it's an open question what the CNN does with it -- that's the point
+# of this test.
 #
 # Same SIRF env + seed convention as submit_generate_eval_dataset_earl_v2.sh.
 #
-# Submit with: qsub scripts/submit_generate_eval_dataset_earl_v3_bg0.sh
+# Submit with: qsub scripts/hpc/generate_data/submit_generate_eval_dataset_earl_v3_bg0.sh
 # Watch with:  qstat -u $(whoami)
 
 #$ -l h_rt=24:00:00

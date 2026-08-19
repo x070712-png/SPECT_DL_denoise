@@ -1,5 +1,5 @@
 #!/bin/bash -l
-# scripts/submit_generate_eval_dataset.sh
+# scripts/hpc/generate_data/submit_generate_eval_dataset.sh
 #
 # Runs generate_eval_phantom_dataset.py for NEMA or EARL -- single fixed
 # phantom, all 5 count levels, NOT an array job (unlike XCAT's 100-task
@@ -22,9 +22,9 @@
 # map previously blew through h_rt=1:00:00 before being bumped to 6:00:00.
 #
 # Submit with:
-#   qsub -v DATASET=nema scripts/submit_generate_eval_dataset.sh
-#   qsub -v DATASET=earl scripts/submit_generate_eval_dataset.sh
-#   qsub -v DATASET=nema,SEEDS="42 43 44 45 46 47 48 49 50 51" scripts/submit_generate_eval_dataset.sh
+#   qsub -v DATASET=nema scripts/hpc/generate_data/submit_generate_eval_dataset.sh
+#   qsub -v DATASET=earl scripts/hpc/generate_data/submit_generate_eval_dataset.sh
+#   qsub -v DATASET=nema,SEEDS="42 43 44 45 46 47 48 49 50 51" scripts/hpc/generate_data/submit_generate_eval_dataset.sh
 
 #$ -l h_rt=24:00:00
 #$ -l mem=8G

@@ -1,11 +1,11 @@
 #!/bin/bash -l
-# scripts/submit_inference_earl_v2_swin.sh
+# scripts/hpc/inference/submit_inference_earl_v2_swin.sh
 #
 # Runs the Swin UNETR XCAT-finetune LABEL-ALPHA checkpoint over the
 # 10-seed EARL v2 dataset. See submit_inference_earl_v2_unet.sh for
 # rationale.
 #
-# Submit with: qsub scripts/submit_inference_earl_v2_swin.sh
+# Submit with: qsub scripts/hpc/inference/submit_inference_earl_v2_swin.sh
 # Watch with:  qstat -u $(whoami)
 
 #$ -l gpu=1
