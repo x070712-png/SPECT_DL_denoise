@@ -1,29 +1,25 @@
 # scripts/print_earl_size_alpha_table.py
 """
 Double-grouped (sphere diameter x alpha) RC summary for the EARL quantify
-CSVs -- Tables 4.6/4.7/4.8 in the dissertation each collapse ONE of the two
-dimensions (4.6/4.7 group by alpha, pooling all 6 spheres; 4.8 groups by
-sphere diameter, pooling all 5 alphas). This script keeps BOTH dimensions,
-producing a 5 (alpha) x 6 (sphere_mm) grid, averaged over the 10 noise
-realisations (seed 42-51) per cell.
+CSVs. The other summary tables in the dissertation each collapse ONE of the
+two dimensions (grouping by alpha alone, or by sphere diameter alone).
+This script keeps BOTH dimensions, producing a 5 (alpha) x 6 (sphere_mm)
+grid, averaged over the 10 noise realisations (seed 42-51) per cell.
 
-Does NOT re-run inference or re-derive anything from the .npy volumes --
-reads the existing per-sphere-per-seed rows already sitting in the
-quant_earl_*.csv files (columns confirmed 8/15: sphere_mm, alpha, alpha_val,
-seed, n_voxels, true_val_gt, true_val_label, measured_mean,
+Does NOT re-run inference or re-derive anything from the .npy volumes.
+It reads the existing per-sphere-per-seed rows already sitting in the
+quant_earl_*.csv files (columns: sphere_mm, alpha, alpha_val, seed,
+n_voxels, true_val_gt, true_val_label, measured_mean,
 recon_rc_label_over_gt, recon_bias_pct, mean_rc, bias_pct,
 mean_rc_over_alpha), just re-aggregates with a different groupby key.
-
-Pure stdlib (csv + statistics) -- no pandas/numpy dependency, so this runs
-on the bare login-node Python without any module load.
 
 Writes two things per input CSV:
   1. A pivot-style table printed to stdout (rows=alpha, cols=sphere_mm).
   2. A long-format CSV (alpha, sphere_mm, n, mean_rc_mean, mean_rc_std,
      mean_rc_over_alpha_mean, mean_rc_over_alpha_std) -- this is also
-     exactly the shape of data needed for Stathis's requested "RC vs
-     sphere diameter, coloured by alpha" figure, so it doubles as that
-     figure's data source.
+     exactly the shape of data needed for an "RC vs sphere diameter,
+     coloured by alpha" figure, so it doubles as that figure's data
+     source.
 
 Usage:
     python3 scripts/print_earl_size_alpha_table.py \

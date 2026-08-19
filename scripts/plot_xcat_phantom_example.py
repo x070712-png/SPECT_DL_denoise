@@ -1,20 +1,8 @@
 # scripts/plot_xcat_phantom_example.py
 """
-Methods-section figure for 3.1.2 XCAT Dataset: a single representative
+Methods-section figure for the XCAT Dataset: a single representative
 XCAT phantom shown as clean label + noisy input, mirroring Miao's
 Figure 2.2 (single example at one count level).
-
-NOTE: unlike the ellipsoidal dataset, each XCAT phantom_idx only has
-data at the ONE count level it was assigned to (generate_xcat_dataset.py
-never generates the other 4 alphas for a given phantom -- see
-generate_xcat_parfiles.py's contiguous-block alpha assignment), so this
-script takes a single --alpha_str and only needs that one alpha's
-subfolder. Pick --phantom_idx from the block matching --alpha_str
-(0-99 -> 1p0, 100-199 -> 0p5, 200-299 -> 0p25, 300-399 -> 0p125,
-400-499 -> 0p05) or the label/input files won't exist.
-
-Does NOT need SIRF/STIR -- reads the already-reconstructed .npy files
-straight off disk, runs on the login node with plain numpy + matplotlib.
 
 Usage:
     python3 scripts/plot_xcat_phantom_example.py \
@@ -84,18 +72,7 @@ def main():
     label_s = central_slice(label, args.slice_axis)
     inp_s = central_slice(inp, args.slice_axis)
 
-    # NOTE: label and input are shown on SEPARATE intensity scales, each
-    # scaled to its own max -- NOT a shared scale like
-    # visualize_predictions.py's CNN-output-vs-label comparison figures.
-    # A shared scale would be appropriate for comparing absolute accuracy,
-    # but for a "what does the raw data look like" dataset-illustration
-    # figure it's misleading: at alpha=0.05 the reconstructed activity is
-    # genuinely ~20x lower in absolute units than the alpha=1.0 label (the
-    # sinogram counts were scaled by alpha before Poisson sampling), so a
-    # shared scale calibrated to the label crushes the noisy panel to
-    # near-black even where it has real, visible structure. Matches how
-    # Miao's Figure 2.2 was very likely rendered (each panel auto-scaled
-    # to its own range, not pinned to a clean-image scale).
+
     label_vmax = label_s.max() * args.vmax_headroom
     input_vmax = inp_s.max() * args.vmax_headroom
     axis_name = {0: "axial", 1: "coronal", 2: "sagittal"}[args.slice_axis]

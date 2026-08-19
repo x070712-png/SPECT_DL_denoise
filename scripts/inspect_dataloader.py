@@ -1,10 +1,18 @@
-# scripts/test_dataloader.py
+# scripts/inspect_dataloader.py
+"""
+Quick smoke check for SPECTDataset / DataLoader -- loads train/val/test
+splits, pulls one training batch, and prints sample counts + batch shapes
++ value ranges for manual inspection. No assertions -- eyeball the
+numbers against what you expect (non-empty splits, matching input/label
+shapes, sane min/max ranges) before trusting anything downstream.
 
-import sys
-sys.path.insert(0, '.')
+Usage:
+    export PYTHONPATH=src:$PYTHONPATH
+    python3 scripts/inspect_dataloader.py
+"""
 
 from torch.utils.data import DataLoader
-from src.spect.baseline.dataset import SPECTDataset
+from spect.baseline.dataset import SPECTDataset
 
 DATA_DIR = "data/dataset"
 

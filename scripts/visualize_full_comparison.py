@@ -3,11 +3,11 @@
 One-figure-does-everything version: show noisy input / pre-CNN error /
 ground truth ONCE, plus TWO checkpoints' output and post-CNN error side
 by side. Generic over WHICH two checkpoints -- originally built to
-compare old-method vs label x alpha for one architecture (Section 4.3),
-also works for comparing U-Net vs Swin UNETR within the SAME training
-formulation (e.g. both old-method, for Section 4.1's pipeline
-reproduction figures) -- any two of the four checkpoint_key entries in
-CHECKPOINTS_BY_DATASET can go on the left/right.
+compare old-method vs label x alpha for one architecture, also works for
+comparing U-Net vs Swin UNETR within the SAME training formulation (e.g.
+both old-method, for a pipeline-reproduction comparison). Any two of
+the four checkpoint_key entries in CHECKPOINTS_BY_DATASET can go on the
+left/right.
 
 Columns (5 rows, one per alpha level):
 
@@ -21,22 +21,19 @@ Shared colour scales, same discipline as the other qualitative scripts:
     here, but kept as its own scale rather than folding into the post-CNN
     one, since pre-CNN error is an order of magnitude larger by
     construction (same reasoning as visualize_predictions.py).
-  - ONE post-CNN diff scale shared between left error AND right error --
-    the whole point of putting two checkpoints side by side is that
+  - ONE post-CNN diff scale shared between left error AND right error. 
+    The whole point of putting two checkpoints side by side is that
     colour intensity is directly comparable between them.
-
-Reads the same already-dumped denoised .npy files as the other two
-qualitative scripts -- no torch/GPU needed, safe on the login node.
 
 Two ways to pick the two checkpoints:
 
   1. --arch {unet,swin} -- shortcut for the original use case, old-method
-     vs label x alpha for ONE architecture (Section 4.3):
+     vs label x alpha for ONE architecture:
        python3 scripts/visualize_full_comparison.py --dataset xcat --arch swin
 
   2. --left_key / --right_key -- any two of unet_old / unet_label_alpha /
-     swin_old / swin_label_alpha directly. E.g. Section 4.1's "old-method,
-     U-Net vs Swin" comparison:
+     swin_old / swin_label_alpha directly. E.g. an "old-method, U-Net vs
+     Swin" comparison:
        python3 scripts/visualize_full_comparison.py --dataset ellipsoid \\
            --left_key unet_old --right_key swin_old \\
            --left_label "U-Net" --right_label "Swin UNETR"
@@ -93,9 +90,9 @@ def parse_args():
     p.add_argument("--fixed_phantom", type=int, default=None,
                     help="if given, show this SAME phantom index at all 5 alphas instead of "
                          "pick_representative_phantoms()'s one-different-phantom-per-alpha "
-                         "choice -- matches the fixed-10-phantom x 5-alpha evaluation "
-                         "(Stathis, 8/14 review). Use an index in 90-99. MUST be paired with "
-                         "--fixed10_dirs. See visualize_predictions.py's pick_fixed_phantom().")
+                         "choice -- matches the fixed-10-phantom x 5-alpha evaluation. Use "
+                         "an index in 90-99. MUST be paired with --fixed10_dirs. See "
+                         "visualize_predictions.py's pick_fixed_phantom().")
     p.add_argument("--fixed10_dirs", action="store_true",
                     help="redirect both checkpoints' denoised_dir to the '<denoised_dir>_fixed10' "
                          "variant produced by run_inference_dump.py --phantom_indices 90,...,99 "

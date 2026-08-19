@@ -1,7 +1,8 @@
 # scripts/print_history_table.py
 """
 Print final-epoch and best-epoch val_psnr/val_ssim from one or more
-history.npz files, in the same format as Table 4.1 (baseline formulation).
+history.npz files, in a compact summary table format for the baseline
+formulation results.
 
 Run on the login node, no torch/GPU needed:
     python3 scripts/print_history_table.py \

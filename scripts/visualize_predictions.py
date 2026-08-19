@@ -1,26 +1,24 @@
 # scripts/visualize_predictions.py
 """
 Qualitative comparison grid across ALL 5 count levels, for one checkpoint
-at a time -- rewritten per Kris/Cate's latest feedback plus the new
-label-alpha vs old-method / U-Net vs Swin comparison need:
+at a time -- built to support the label-alpha vs old-method / U-Net vs
+Swin comparison need:
 
   1. Whole-image difference maps (no VOI-mask restriction) -- diff panels
      are computed on the whole central slice, never masked, so background
-     bias is visible (Cate, 7/23 meeting).
+     bias is visible.
   2. Shared colour scales across EVERY panel/row/figure (not recomputed
      per-row, and not even per-checkpoint) -- computed once in a first
      pass over ALL data before any plotting, so brightness and error
      magnitude are directly comparable across samples, count levels, AND
-     checkpoints (Cate, 7/23 meeting: "put them on the same scale").
-     Pre-CNN (noisy-label) and post-CNN (output-label) diff panels use
-     TWO SEPARATE shared scales rather than one: pre-CNN error is an
-     order of magnitude larger by construction, so one shared scale
+     checkpoints. Pre-CNN (noisy-label) and post-CNN (output-label) diff
+     panels use TWO SEPARATE shared scales rather than one: pre-CNN error
+     is an order of magnitude larger by construction, so one shared scale
      across both would wash the post-CNN panel out to near-white
      regardless of real differences between checkpoints. Each diff type
      still shares ONE scale across all checkpoints/alphas, so old-method
      vs label-alpha and U-Net vs Swin remain directly comparable within
-     that diff type -- this is a legibility fix, not a rescaling meant to
-     make results look better.
+     that diff type.
   3. One representative test-split phantom per alpha level (5 rows), not
      just alpha_1p0 -- ellipsoid phantoms only exist at ONE alpha each
      (500 phantoms / 5 fixed groups), so "more count levels" means picking
@@ -28,8 +26,7 @@ label-alpha vs old-method / U-Net vs Swin comparison need:
      repeated at different alphas (that's only possible for NEMA/EARL).
   4. A pre-CNN baseline difference panel (noisy input - label) alongside
      the post-CNN one (model output - label), so the reader sees at a
-     glance how much error the network actually removed (Cate, 7/23
-     meeting).
+     glance how much error the network actually removed.
 
 Reads ALREADY-DUMPED denoised outputs (written by run_inference_dump.py,
 the same step quantify_noisy_baseline.py's RC numbers were computed from)
@@ -39,9 +36,9 @@ script has no torch/model dependency (safe on the login node, no GPU
 needed).
 
 VOI-mask-overlay panel from the older version is DROPPED here -- that was
-a separate methodology check (Chris's question about how the mask is
-built/reused), not part of this whole-image background-bias comparison;
-keep it as a separate, one-off figure if still needed.
+a separate methodology check (on how the mask is built/reused), not part
+of this whole-image background-bias comparison; keep it as a separate,
+one-off figure if still needed.
 
 Run ONCE PER CHECKPOINT (see CHECKPOINTS_BY_DATASET config below -- edit
 paths if yours differ), or all four in one go:
@@ -81,37 +78,31 @@ ALPHAS_ORDERED = [1.0, 0.5, 0.25, 0.125, 0.05]
 #
 # alpha_correction: label-alpha checkpoints were trained to predict
 # label*alpha (see dataset.py's scale_label_by_alpha), so their RAW saved
-# output (as dumped by run_inference_dump.py, unchanged on disk -- same
-# convention quantify_noisy_baseline.py relies on for its own RC/alpha
-# column) is approximately true_scale*alpha, not true_scale. Comparing
-# that raw output directly against the un-scaled label makes the diff
-# panels look like the network gets WORSE as alpha shrinks, when that's
-# just the known label-scaling artifact, not a real regression (same trap
-# already handled in quantify_noisy_baseline.py's RC/alpha column). Set
-# True here for label-alpha checkpoints so this script divides by alpha
-# right after loading, before computing anything else -- old-method
-# checkpoints are untouched (already alpha-independent by design).
+# output is approximately true_scale*alpha, not true_scale. Comparing that
+# raw output directly against the un-scaled label makes the diff panels
+# look like the network gets WORSE as alpha shrinks, when that's just the
+# known label-scaling artifact, not a real regression (same trap already
+# handled in quantify_noisy_baseline.py's RC/alpha column). Set True here
+# for label-alpha checkpoints so this script divides by alpha right after
+# loading, before computing anything else -- old-method checkpoints are
+# untouched (already alpha-independent by design).
 #
-# NOISY-INPUT alpha-division (Kris, 8/3 meeting -- applies to EVERY
-# checkpoint below, NOT gated by alpha_correction): the raw noisy
-# reconstruction is also naturally ~alpha x dimmer in absolute units at
-# low alpha, independent of any training-target scaling -- the noisy
+# NOISY-INPUT alpha-division (applies to EVERY checkpoint below, NOT
+# gated by alpha_correction): the raw noisy reconstruction is also
+# naturally ~alpha x dimmer in absolute units at low alpha -- the noisy
 # sinogram is Poisson-thinned by alpha BEFORE reconstruction (see
-# sirf_bridge.py's acquire_data()), so fewer total counts go into OSEM
-# and the reconstructed image's overall intensity scales down roughly
-# proportionally. The label is always full-scale (clean, alpha-
-# independent), so comparing it against a raw noisy input that's ~alpha x
-# dimmer makes the pre-CNN diff panel balloon at low alpha for a reason
-# that has nothing to do with noise -- just a scale mismatch. Dividing
-# the noisy input by alpha for display (both its own panel and the
-# pre-CNN diff) removes this, applied uniformly to every checkpoint/row
-# regardless of alpha_correction.
+# sirf_bridge.py's acquire_data()), so fewer total counts go into OSEM.
+# The label is always full-scale, so comparing it against a raw noisy
+# input that's ~alpha x dimmer would balloon the pre-CNN diff panel at
+# low alpha for a reason unrelated to noise. Dividing the noisy input by
+# alpha for display removes this, applied uniformly regardless of
+# alpha_correction.
 #
 # Keyed by --dataset. Both sub-dicts use the SAME four checkpoint_key
 # names (unet_old / unet_label_alpha / swin_old / swin_label_alpha) so
 # --checkpoint_key works identically regardless of --dataset -- only the
 # label text and denoised_dir paths differ. XCAT paths confirmed against
-# scripts/submit_inference_dump_{unet,swin}_xcat{,_labelalpha}.sh.
+# scripts/hpc/inference/submit_inference_dump_{unet,swin}_xcat{,_labelalpha}.sh.
 CHECKPOINTS_BY_DATASET = {
     "ellipsoid": {
         "unet_old":          {"label": "U-Net (old method)",        "denoised_dir": "logs/denoised/3d_unet",                     "alpha_correction": False},
@@ -144,9 +135,9 @@ def parse_args():
                     help="if given, show this SAME phantom index at all 5 alphas instead "
                          "of pick_representative_phantoms()'s one-different-phantom-per-"
                          "alpha choice -- matches the fixed-10-phantom x 5-alpha "
-                         "evaluation (Stathis, 8/14 review). Use an index in 90-99 (the "
-                         "fixed-10 set Table 4.2/4.4 were regenerated on). MUST be paired "
-                         "with --fixed10_dirs.")
+                         "evaluation. Use an index in 90-99 (the fixed-10 set Table "
+                         "4.2/4.4 were regenerated on). MUST be paired with "
+                         "--fixed10_dirs.")
     p.add_argument("--fixed10_dirs", action="store_true",
                     help="redirect every checkpoint's denoised_dir to the "
                          "'<denoised_dir>_fixed10' variant (e.g. logs/denoised/3d_unet -> "
@@ -158,8 +149,8 @@ def parse_args():
     p.add_argument("--slice_axis", type=int, default=0, help="0=axial, 1=coronal, 2=sagittal")
     p.add_argument("--vmax_headroom", type=float, default=1.2,
                     help="multiply the global label max by this factor for the shared "
-                         "intensity colour scale (Kris, 7/15 meeting) -- ignored if "
-                         "--intensity_vmax_override is given")
+                         "intensity colour scale -- ignored if --intensity_vmax_override "
+                         "is given")
     p.add_argument("--intensity_vmax_override", type=float, default=None,
                     help="if given, use this directly as the shared intensity vmax "
                          "instead of computing it from data. Useful when the "
@@ -206,11 +197,11 @@ def pick_representative_phantoms(split):
 
 def pick_fixed_phantom(phantom_idx):
     """SAME phantom_idx at all 5 alphas -- matches the fixed-10-phantom x
-    5-alpha evaluation design. Only
-    valid together with --fixed10_dirs (denoised_dir must point at the
-    *_fixed10 directories produced by run_inference_dump.py
-    --phantom_indices, since the plain denoised_dir only ever contains
-    ONE alpha's worth of test-split output for phantom 90-99, not all 5)."""
+    5-alpha evaluation design. Only valid together with --fixed10_dirs
+    (denoised_dir must point at the *_fixed10 directories produced by
+    run_inference_dump.py --phantom_indices, since the plain denoised_dir
+    only ever contains ONE alpha's worth of test-split output for
+    phantom 90-99, not all 5)."""
     return {ALPHA_STR[a]: phantom_idx for a in ALPHAS_ORDERED}
 
 
@@ -258,7 +249,8 @@ def main():
     # ------------------------------------------------------------------
     # Pass 1: load everything for every checkpoint x alpha up front, so a
     # SINGLE global colour scale (intensity + diff) can be computed across
-    # the whole deliverable before any plotting happens.
+    # the whole deliverable before any plotting happens (see docstring
+    # item 2 for why).
     # ------------------------------------------------------------------
     loaded = {}   # {checkpoint_key: {alpha_str: (phantom_idx, inp, lbl, den) or None}}
     all_intensity_vals = []
@@ -285,46 +277,29 @@ def main():
                 continue
 
             inp, lbl, den = data
-            # raw noisy reconstruction is naturally ~alpha x dimmer (fewer
-            # total counts went into OSEM) -- divide by alpha for display,
-            # uniformly across EVERY checkpoint (not gated by
-            # alpha_correction below), so it is comparable to the always-
-            # full-scale label (Kris, 8/3 meeting; see CHECKPOINTS comment)
+            # see CHECKPOINTS comment above for why both of these divisions
+            # happen
             inp = inp / alpha
             if CHECKPOINTS[key]["alpha_correction"]:
-                # undo the label*alpha training-target scaling baked into this
-                # checkpoint's raw output -- see CHECKPOINTS comment above
                 den = den / alpha
             loaded[key][alpha_str] = (phantom_idx, inp, lbl, den)
 
             inp_s = central_slice(inp, args.slice_axis)
             lbl_s = central_slice(lbl, args.slice_axis)
             den_s = central_slice(den, args.slice_axis)
-            # Intensity vmax is set from label + model output ONLY, not the
-            # noisy input. At low alpha, dividing the noisy input by alpha
-            # amplifies Poisson noise across a wide swath of pixels (not
-            # just one outlier), so even a 99th percentile of the input
-            # itself stays inflated (~106, still well above the ~20-40
-            # anatomical range visible in label/output). Label and model
-            # output are smooth/noise-free by comparison, so they give a
-            # scale that actually reflects real activity, not noise -- the
-            # noisy input panel is still drawn against this same shared
-            # scale, it just saturates (white) on its noisiest pixels,
-            # which is an accurate and expected way to show "this is noisy".
-            # track (value, source) so we can print exactly which
-            # checkpoint/alpha/panel is setting the shared scale, instead of
-            # guessing -- cheap to keep, only used for the diagnostic print
-            # right after this loop.
+            # Intensity vmax comes from label + model output ONLY, not the
+            # noisy input -- at low alpha the alpha-divided noisy input's
+            # Poisson noise is amplified across a wide swath of pixels, so
+            # even its 99th percentile stays inflated well above the
+            # anatomical range visible in label/output. All three
+            # quantities below use the 99th percentile rather than the
+            # true max for the same reason: isolated noise-spike pixels
+            # would otherwise pin the shared scale and crush every other
+            # row to near-invisible. (value, source) pairs are kept only
+            # so the diagnostic print below can name which
+            # checkpoint/alpha/panel set the scale.
             all_intensity_vals.append((np.percentile(lbl_s, 99), f"{key} alpha={alpha} label"))
             all_intensity_vals.append((np.percentile(den_s, 99), f"{key} alpha={alpha} model_output"))
-            # 99th percentile, not true max -- the true per-pixel max is
-            # driven by single isolated Poisson-noise spikes (especially
-            # after dividing the noisy input by alpha at low alpha, which
-            # amplifies exactly this kind of outlier), and a shared scale
-            # pinned to that single pixel crushes every other row/panel to
-            # near-invisible. Percentile keeps ONE shared scale across all
-            # rows (still comparable across alphas/checkpoints per Cate's
-            # 7/23 request) without letting outliers dominate it.
             all_diff_post_vals.append(np.percentile(np.abs(den_s - lbl_s), 99))
             all_diff_pre_vals.append(np.percentile(np.abs(inp_s - lbl_s), 99))
 
@@ -333,21 +308,8 @@ def main():
                             "run_inference_dump.py has been run (with --split matching --split "
                             "here) for the requested checkpoint(s).")
 
-    # ---- global, shared colour scales (Cate, 7/23 meeting: single scale
-    # across ALL samples, not recomputed per row/sample/checkpoint) ----
-    #
-    # NOTE: pre-CNN (noisy - label) and post-CNN (output - label) diffs use
-    # TWO SEPARATE shared scales, not one. Pre-CNN errors are an order of
-    # magnitude larger than post-CNN residuals (that's the whole point of
-    # denoising) -- forcing both onto one scale washes the post-CNN panel
-    # out to near-white regardless of real differences between checkpoints,
-    # which would hide the label-alpha vs old-method comparison rather than
-    # show it. Comparability is preserved where it matters: ALL checkpoints
-    # x ALL alphas still share the SAME post-CNN scale as each other (and
-    # separately, the same pre-CNN scale as each other), so old-method vs
-    # label-alpha and U-Net vs Swin remain apples-to-apples. Just don't
-    # shrink this further than "make the post-CNN panel legible" -- that
-    # would start exaggerating residual error rather than revealing it.
+    # global, shared colour scales -- see docstring item 2 for why pre-CNN
+    # and post-CNN diffs get two separate scales rather than one.
     if args.intensity_vmax_override is not None:
         global_vmax = args.intensity_vmax_override
     else:
@@ -414,10 +376,8 @@ def main():
 
             row += 1
 
-        # one shared colorbar per column type (intensity, pre-CNN diff,
-        # post-CNN diff), figure-wide -- pre/post diff colorbars use
-        # DIFFERENT scales (see note above global_diff_pre_absmax), so both
-        # need their own colorbar rather than sharing one.
+        # pre/post diff colorbars use DIFFERENT scales (see docstring item
+        # 2), so both need their own colorbar rather than sharing one.
         fig.colorbar(im_lbl, ax=axes[:, 4].tolist(), fraction=0.02, pad=0.02,
                      label="count-domain activity")
         fig.colorbar(im_pre, ax=axes[:, 1].tolist(), fraction=0.02, pad=0.02,

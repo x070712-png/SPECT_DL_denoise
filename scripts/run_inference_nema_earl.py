@@ -5,11 +5,7 @@ label-alpha) over the NEMA/EARL evaluation dataset and dump restored
 count-domain outputs, for later quantification with quantify_nema_earl.py
 (--input_prefix denoised).
 
-Unlike run_inference_dump.py (which iterates phantom_idx/alpha pairs from
-build_split()), NEMA/EARL is a single fixed phantom with alpha_*/
-label.npy + input_seed{seed}.npy layout (see
-generate_eval_phantom_dataset.py --seeds). This script mirrors that: for
-each (alpha, seed) pair, load input_seed{seed}.npy, apply the SAME stage-1
+For each (alpha, seed) pair, load input_seed{seed}.npy, apply the SAME stage-1
 mean normalisation SPECTDataset.__getitem__ applies (divide by the
 volume's own mean) before feeding it to the model, then multiply the
 model's output back by that same scale to restore count-domain units --

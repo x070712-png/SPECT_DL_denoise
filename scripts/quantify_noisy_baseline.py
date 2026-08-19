@@ -4,20 +4,18 @@
 INPUT (before any denoising) recover the true activity in each VOI,
 compared to what the model output will later be measured against?
 
-UPDATED 7/26 : recovery is now measured against the
-LABEL (the noise-free reconstruction the network was actually trained to
-reproduce), not the raw phantom ground truth. The network never sees
-ground truth, so scoring it against ground truth mixes in reconstruction-
-only bias (resolution blur / partial-volume effect, baked into the label
-already) with the network's own denoising error. This script now also
-reports the label-vs-ground-truth ratio separately, so the reconstruction-
-only bias can be seen on its own. See process_phantom()'s docstring for
-the full breakdown -- run this once with --input_prefix input (before
-CNN) and once with --input_prefix denoised (after CNN, needs
-run_inference_dump.py first) to get all three legs of the comparison.
+Recovery is measured against the LABEL (the noise-free reconstruction the
+network was actually trained to reproduce), not the raw phantom ground
+truth. The network never sees ground truth, so scoring it against
+ground truth would conflate reconstruction-only bias (resolution blur /
+partial-volume effect, baked into the label already) with the network's
+own denoising error. See process_phantom()'s docstring for the full
+three-way breakdown (ground truth vs label vs measured). Run this once
+with --input_prefix input (before CNN) and once with --input_prefix
+denoised (after CNN, needs run_inference_dump.py first) to get all three
+legs of the comparison.
 
-Needs no GPU, no checkpoint — data/dataset already has the noisy inputs
-on disk. Run on the login node:
+Needs no GPU, no checkpoint. Run on the login node:
 
     module unload gcc-libs
     module load pytorch/2.1.0/gpu
@@ -28,8 +26,8 @@ on disk. Run on the login node:
 Reads phantom_idx/alpha pairs the same way SPECTDataset does (via
 build_split), so the CSV lines up with whatever split you point it at.
 
-UPDATED 7/19: two different questions need two different amounts of data,
-so this script now runs two passes over the dataset:
+This script runs two passes over the dataset, because they answer two
+different questions that need two different amounts of data:
 
   1. Combined-mask RC by alpha -- scoped to --split (val by default). This
      is the "before denoising" baseline that will later be compared
@@ -37,7 +35,7 @@ so this script now runs two passes over the dataset:
      checkpoint, so it MUST stay on the same split (val/test) that the
      model evaluation will use -- can't compare against train (the model
      saw it during training) and shouldn't silently change the split the
-     baseline numbers were already reported on in the 7/13 meeting.
+     baseline numbers were already reported on.
 
   2. Per-ellipsoid RC grouped by size (both all-VOI and isolated-only
      variants) -- pools ALL 500 phantoms (train+val+test), not just
@@ -54,33 +52,33 @@ so this script now runs two passes over the dataset:
 import argparse
 import csv
 import os
- 
+
 import numpy as np
- 
+
 from spect.baseline.dataset import build_split
 from spect.baseline.quantification import build_voi_masks
 
 ALPHAS_ORDERED = ["1p0", "0p5", "0p25", "0p125", "0p05"]
- 
- 
+
+
 def alpha_to_float(alpha_str):
     """Convert a folder-name-safe alpha string like '0p125' back to the
     float count-level (0.125). Reverses the 'p'-for-'.' encoding used
     throughout data/dataset's alpha_* folder names.
- 
+
     Needed because raw RC is confounded with the known count-level scaling:
     at low alpha, the noisy input's absolute values are proportionally
     lower (fewer counts collected), so RC naturally tracks alpha even
     with a perfect reconstruction. Dividing RC by alpha removes this
     expected/known scaling, leaving only the "extra" bias caused by
-    noise/reconstruction (Kris, 7/13 meeting)."""
+    noise/reconstruction."""
     return float(alpha_str.replace("p", "."))
- 
- 
+
+
 def compute_isolation_flags(per_voi):
     """For each ellipsoid in a phantom, return whether its mask has zero
     voxel overlap with every OTHER ellipsoid's mask in the same phantom.
- 
+
     Needed because generate_ellipsoids.py stacks overlapping ellipsoids'
     intensities additively (region[inside] += intensity). A per-VOI RC
     that divides by only that ellipsoid's own intensity ends up inflated
@@ -91,8 +89,7 @@ def compute_isolation_flags(per_voi):
     the true partial-volume-effect trend in the size-grouped RC summary.
     Restricting that analysis to isolated (non-overlapping) ellipsoids
     removes this confound -- see quantification.py's note on overlap
-    regions, and the 7/19 discussion of why per-VOI RC/alpha came out
-    >1 across the board."""
+    regions."""
     n = len(per_voi)
     flags = [True] * n
     for i in range(n):
@@ -101,8 +98,8 @@ def compute_isolation_flags(per_voi):
                 flags[i] = False
                 flags[j] = False
     return flags
- 
- 
+
+
 def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
                      input_prefix="input", eps=1e-8, label_dir=None):
     """Load one phantom's noisy input (or, with input_prefix="denoised",
@@ -110,22 +107,22 @@ def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
     PLUS its label (label_{idx}.npy -- the noise-free reconstruction the
     network was actually trained to reproduce), and compute recovery
     stats against BOTH reference points.
- 
-    UPDATED 7/26 (Cate, 7/23 meeting): the network only ever sees
-    (noisy input, label) pairs during training -- it was never shown, and
-    never asked to correct for, the gap between the label and the raw
-    phantom ground truth (that gap is purely a property of the forward
-    projection + OSEM reconstruction step, e.g. resolution blur /
-    partial-volume effect). Scoring the network against ground truth
-    conflates that reconstruction-only bias with the network's own
-    denoising error, which is unfair to the network and doesn't isolate
-    either effect cleanly. So this now computes THREE things per VOI,
-    all using the exact same mask (see quantification.py -- the mask
-    itself is unchanged, only which array it's applied to is new):
- 
+
+    The network only ever sees (noisy input, label) pairs during
+    training. It was never shown, and never asked to correct for, the
+    gap between the label and the raw phantom ground truth (that gap is
+    purely a property of the forward projection + OSEM reconstruction
+    step, e.g. resolution blur / partial-volume effect). Scoring the
+    network against ground truth conflates that reconstruction-only bias
+    with the network's own denoising error, which is unfair to the
+    network and doesn't isolate either effect cleanly. So this computes
+    THREE things per VOI, all using the exact same mask (see
+    quantification.py -- the mask itself is unchanged, only which array
+    it's applied to is new):
+
       true_val_gt    = background + intensity (phantom design value,
                         exactly as before -- see quantification.py note)
-      true_val_label = label[mask].mean()  (NEW -- what the network was
+      true_val_label = label[mask].mean()  (what the network was
                         actually trained to reproduce)
       recon_rc       = true_val_label / true_val_gt  (label vs ground
                         truth -- pure reconstruction bias, nothing to do
@@ -136,35 +133,12 @@ def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
                         input_prefix="denoised". THIS is the number that
                         actually reflects what the network is being asked
                         to do, and is comparable before/after the CNN)
- 
+
     Run this script twice -- once with input_prefix="input" and once with
     input_prefix="denoised" (after run_inference_dump.py) -- and put
-    mean_rc from both runs alongside recon_rc in one table: that's Cate's
+    mean_rc from both runs alongside recon_rc in one table for the full
     three-way comparison (label vs ground truth, reconstruction vs label,
     CNN output vs label).
- 
-    NOTE on alpha-normalisation: label_{idx}.npy lives inside the
-    alpha_{alpha_str} folder, i.e. it's generated at that same reduced
-    count level -- unlike true_val_gt (phantom design value, alpha-
-    independent), true_val_label should already be on the same alpha-
-    scaled footing as "measured". mean_rc_over_alpha is kept below for
-    continuity with the old GT-based numbers, but check the printed
-    per-alpha true_val_label values the first time you run this --
-    if true_val_label scales roughly linearly with alpha, mean_rc should
-    already be close to alpha-independent and dividing by alpha again
-    may not be the right thing to do. Flag this rather than assume it.
- 
-    Returns (combined_row, per_voi_entries). combined_row is None if the
-    input or label file is missing; per_voi_entries is always a list
-    (possibly empty).
- 
-    label_dir: where to look for label_{idx}.npy. Defaults to data_dir
-    (fine when data_dir IS data/dataset, i.e. input_prefix="input"), but
-    MUST be set explicitly to the original data/dataset root when data_dir
-    points at a run_inference_dump.py output folder (input_prefix=
-    "denoised") -- that folder only ever contains denoised_{idx}.npy, it
-    never copies the labels alongside them, so label lookups would
-    otherwise all silently miss and every phantom gets skipped.
     """
     if label_dir is None:
         label_dir = data_dir
@@ -176,14 +150,14 @@ def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
     if not os.path.exists(label_path):
         print(f"[skip] phantom {phantom_idx:04d} alpha_{alpha_str}: missing {label_path}")
         return None, []
- 
+
     measured = np.load(inp_path).astype(np.float32)
     label = np.load(label_path).astype(np.float32)
- 
+
     combined_mask, per_voi, background = build_voi_masks(phantom_idx, seed_base=seed_base)
     alpha_val = alpha_to_float(alpha_str)
     isolation_flags = compute_isolation_flags(per_voi)
- 
+
     # --- combined (all-VOI) recovery ---
     if combined_mask.sum() > 0:
         # true value for the combined mask: approximate as background +
@@ -193,10 +167,10 @@ def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
         true_val_gt = background + mean_intensity
         true_val_label = float(label[combined_mask].mean())
         measured_mean = float(measured[combined_mask].mean())
- 
+
         recon_rc = true_val_label / (true_val_gt + eps)
         recon_bias_pct = (true_val_label - true_val_gt) / (true_val_gt + eps) * 100.0
- 
+
         combined_mean_rc = measured_mean / (true_val_label + eps)
         combined_bias_pct = (measured_mean - true_val_label) / (true_val_label + eps) * 100.0
         # kept for continuity with the old GT-based numbers -- see NOTE
@@ -207,7 +181,7 @@ def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
         recon_rc, recon_bias_pct = float("nan"), float("nan")
         combined_mean_rc, combined_bias_pct = float("nan"), float("nan")
         combined_mean_rc_over_alpha = float("nan")
- 
+
     combined_row = {
         "phantom_idx": phantom_idx,
         "alpha": alpha_str,
@@ -220,19 +194,19 @@ def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
         "combined_bias_pct": combined_bias_pct,
         "combined_mean_rc_over_alpha": combined_mean_rc_over_alpha,
     }
- 
+
     # --- per-VOI recovery, so you can group by size later ---
     per_voi_entries = []
     for i, v in enumerate(per_voi):
         true_val_gt_v = background + v["intensity"]
         true_val_label_v = float(label[v["mask"]].mean())
         measured_mean_v = float(measured[v["mask"]].mean())
- 
+
         recon_rc_v = true_val_label_v / (true_val_gt_v + eps)
         mean_rc = measured_mean_v / (true_val_label_v + eps)
         bias_pct = (measured_mean_v - true_val_label_v) / (true_val_label_v + eps) * 100.0
         mean_rc_over_alpha = mean_rc / alpha_val
- 
+
         per_voi_entries.append({
             "phantom_idx": phantom_idx,
             "alpha": alpha_str,
@@ -248,17 +222,17 @@ def process_phantom(phantom_idx, alpha_str, data_dir, seed_base, verbose=True,
             "mean_rc_over_alpha": mean_rc_over_alpha,
             "is_isolated": isolation_flags[i],
         })
- 
+
     if verbose:
         tag = "CNN out" if input_prefix == "denoised" else "noisy in"
         print(f"phantom {phantom_idx:04d} alpha_{alpha_str}: "
               f"recon(label/GT)={recon_rc:.3f}  {tag}/label RC={combined_mean_rc:.3f} "
               f"(RC/alpha={combined_mean_rc_over_alpha:.3f}) bias={combined_bias_pct:+.1f}% "
               f"({len(per_voi)} VOIs)")
- 
+
     return combined_row, per_voi_entries
- 
- 
+
+
 def print_size_binned_summary(title, entries, n_size_bins):
     """Shared helper for the two size-binned summaries (all-VOI and
     isolated-only) -- equal-COUNT bins (terciles by default) rather than
@@ -268,11 +242,11 @@ def print_size_binned_summary(title, entries, n_size_bins):
     if not entries:
         print("  (no entries)")
         return
- 
+
     radii = np.array([r["mean_radius_vox"] for r in entries])
     edges = np.quantile(radii, np.linspace(0, 1, n_size_bins + 1))
     edges[-1] += 1e-6  # make the top edge inclusive
- 
+
     for b in range(n_size_bins):
         lo, hi = edges[b], edges[b + 1]
         in_bin = [r for r in entries if lo <= r["mean_radius_vox"] < hi]
@@ -280,18 +254,14 @@ def print_size_binned_summary(title, entries, n_size_bins):
             continue
         mean_rc_bin = np.mean([r["mean_rc"] for r in in_bin])
         mean_rc_over_alpha_bin = np.mean([r["mean_rc_over_alpha"] for r in in_bin])
-        # both printed always: raw mean_rc is the number to trust for a
-        # denoised (CNN-output) run (no known linear alpha-scaling to
-        # normalise out there -- see docstring), mean_rc/alpha is the
-        # number to trust for a raw-input run comparing across alpha
-        # levels. Printing both avoids having to remember which is valid
-        # for which run.
+        # which column to trust depends on the run -- see process_phantom
+        # docstring; both are printed so the caller never has to remember.
         print(f"  radius [{lo:.1f}, {hi:.1f}) vox: n={len(in_bin):3d}  "
               f"mean RC={mean_rc_bin:.3f}  mean RC/alpha={mean_rc_over_alpha_bin:.3f}")
- 
+
     return edges
- 
- 
+
+
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--data_dir", type=str, default="data/dataset")
@@ -310,13 +280,12 @@ def parse_args():
                     help="comma-separated phantom indices, e.g. '90,91,...,99' -- if "
                          "given, Pass 1 (combined-mask RC by alpha) uses these SAME "
                          "indices at all 5 alphas instead of --split's block-based "
-                         "pairing (Stathis, 8/14: 'use the same 10 test phantoms... "
-                         "modified according to the 5 noise realisations, to compare "
-                         "like for like'). Use indices 90-99 -- alpha_1p0's existing "
-                         "test-split holdout, which is unseen training data under "
-                         "every alpha (see run_inference_dump.py's 'FIXED-PHANTOM "
-                         "MODE' docstring for why). Pass 2 (per-ellipsoid size "
-                         "analysis) is unaffected by this flag -- it answers a "
+                         "pairing, so the same fixed set of phantoms can be compared "
+                         "like-for-like across noise realisations. Use indices 90-99 "
+                         "-- alpha_1p0's existing test-split holdout, which is unseen "
+                         "training data under every alpha (see run_inference_dump.py's "
+                         "'FIXED-PHANTOM MODE' docstring for why). Pass 2 (per-ellipsoid "
+                         "size analysis) is unaffected by this flag -- it answers a "
                          "different question (structural PVE-vs-size trend) and "
                          "still pools/restricts per --pool_all_for_size_analysis.")
     p.add_argument("--out_csv", type=str, default="logs/quant_noisy_baseline.csv")
@@ -350,16 +319,16 @@ def parse_args():
                          "a val-only 'after CNN' run (auto would otherwise pool all "
                          "500 phantoms here, giving the two legs different sample sets).")
     return p.parse_args()
- 
- 
+
+
 def main():
     args = parse_args()
     os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
- 
+
     if args.per_voi_csv is None:
         base, ext = os.path.splitext(args.out_csv)
         args.per_voi_csv = f"{base}_per_voi{ext}"
- 
+
     # pool_all_for_size_analysis default depends on input_prefix -- see
     # parse_args() help text: pooling train is fine with no model involved,
     # but leaks train performance into the number once a checkpoint is
@@ -371,7 +340,7 @@ def main():
         pool_all = (args.input_prefix == "input")
     else:
         pool_all = (args.pool_all_for_size_analysis == "yes")
- 
+
     # ------------------------------------------------------------------
     # Pass 1: combined-mask RC by alpha, scoped to --split. This is the
     # number that will later be compared against "after denoising" on a
@@ -392,7 +361,7 @@ def main():
                                            label_dir=args.label_dir)
         if combined_row is not None:
             rows.append(combined_row)
- 
+
     # ---- write a flat summary CSV (combined-level numbers) ----
     fieldnames = ["phantom_idx", "alpha", "n_voi", "true_val_gt", "true_val_label",
                   "recon_rc_label_over_gt", "recon_bias_pct", "combined_mean_rc",
@@ -402,7 +371,7 @@ def main():
         writer.writeheader()
         for r in rows:
             writer.writerow({k: r[k] for k in fieldnames})
- 
+
     # ---- also print an overall summary, grouped by alpha ----
     tag = "CNN output" if args.input_prefix == "denoised" else "noisy input"
     print(f"\n=== Summary by alpha ({tag} vs label, split={args.split}) ===")
@@ -422,7 +391,7 @@ def main():
     print("\n  (check mean true_val_label above across alpha groups -- if it scales "
           "roughly linearly with alpha, RC vs label is already alpha-matched and "
           "RC/alpha may be double-normalising; see docstring note in process_phantom)")
- 
+
     # RC/alpha should be roughly flat across alpha groups if the residual
     # bias is purely count-level/noise-driven and not something else --
     # print the overall spread so it's obvious at a glance whether it is.
@@ -430,9 +399,9 @@ def main():
     if all_norm:
         print(f"\nRC/alpha across all groups: mean={np.mean(all_norm):.3f}, "
               f"std={np.std(all_norm):.3f}, min={np.min(all_norm):.3f}, max={np.max(all_norm):.3f}")
- 
+
     print(f"\nSaved {len(rows)} rows to {args.out_csv}")
- 
+
     # ------------------------------------------------------------------
     # Pass 2: per-ellipsoid size analysis, pooling ALL 500 phantoms
     # (train+val+test) -- not a model-evaluation question, so no leakage
@@ -441,8 +410,8 @@ def main():
     # ------------------------------------------------------------------
     if pool_all:
         print(f"\n[per-ellipsoid size analysis below uses ALL 500 phantoms "
-              f"(train+val+test), not just --split {args.split} -- see 7/19 "
-              f"discussion in module docstring]")
+              f"(train+val+test), not just --split {args.split} -- see module "
+              f"docstring]")
         all_pairs = build_split("train") + build_split("val") + build_split("test")
     else:
         print(f"\n[input_prefix={args.input_prefix}: per-ellipsoid size analysis "
@@ -459,7 +428,7 @@ def main():
         per_voi_rows.extend(per_voi_entries)
         if (i + 1) % 100 == 0:
             print(f"  ...processed {i + 1}/{len(all_pairs)} phantoms")
- 
+
     # ---- write the flat per-VOI CSV ----
     per_voi_fieldnames = ["phantom_idx", "alpha", "alpha_val", "voi_idx",
                            "mean_radius_vox", "n_voxels", "true_val_gt", "true_val_label",
@@ -473,15 +442,15 @@ def main():
     print(f"Saved {len(per_voi_rows)} per-VOI rows "
           f"({'all 500 phantoms' if pool_all else f'--split {args.split} only'}) "
           f"to {args.per_voi_csv}")
- 
-    # ---- per-ellipsoid RC grouped by size, all VOIs (Kris, 7/13 meeting:
-    # "don't just look at the combined mask number -- check whether small
-    # ellipsoids recover worse than large ones") ----
+
+    # ---- per-ellipsoid RC grouped by size, all VOIs -- checks whether
+    # small ellipsoids recover worse than large ones, not just the
+    # combined-mask number ----
     print_size_binned_summary(
         f"Per-ellipsoid RC grouped by size, ALL VOIs ({args.n_size_bins} "
         f"equal-count bins, n={len(per_voi_rows)})",
         per_voi_rows, args.n_size_bins)
- 
+
     # ---- same bins, broken down by alpha (checks whether the size effect
     # is stable across noise levels -- constant would point to a pure
     # partial-volume/resolution effect; getting worse at low alpha would
@@ -501,17 +470,14 @@ def main():
                 in_bin = [r for r in per_voi_rows
                           if r["alpha"] == a and lo <= r["mean_radius_vox"] < hi]
                 if in_bin:
-                    # print BOTH raw RC and RC/alpha -- raw RC is the
-                    # number to trust for a denoised (CNN-output) run,
-                    # RC/alpha for a raw-input run (see process_phantom
-                    # docstring). Previously only RC/alpha was printed
-                    # here, which silently mis-served denoised runs.
+                    # print both raw RC and RC/alpha -- which one applies
+                    # depends on the run type, see process_phantom docstring
                     parts.append(f"bin{b}(n={len(in_bin)}) RC="
                                  f"{np.mean([r['mean_rc'] for r in in_bin]):.3f}"
                                  f"/RC/alpha="
                                  f"{np.mean([r['mean_rc_over_alpha'] for r in in_bin]):.3f}")
             print(line + "  ".join(parts))
- 
+
     # ---- same size-binned summary, but restricted to ISOLATED ellipsoids
     # only (no mask overlap with any neighbour in the same phantom) --
     # removes the additive-overlap inflation described in
@@ -523,7 +489,7 @@ def main():
         f"other ellipsoid in the same phantom) -- {len(isolated_rows)}/"
         f"{len(per_voi_rows)} VOIs qualify",
         isolated_rows, args.n_size_bins)
- 
- 
+
+
 if __name__ == "__main__":
     main()
