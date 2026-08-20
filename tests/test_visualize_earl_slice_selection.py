@@ -1,7 +1,7 @@
 # tests/test_visualize_earl_slice_selection.py
 """
 Fast, independent assert-based check for find_sphere_slice() in
-scripts/visualize_earl_predictions.py . To verifies it actually picks the
+scripts/visualize_earl_predictions.py . Verifies it actually picks the
 z-slice with the most combined sphere-mask coverage, using small
 synthetic masks instead of real EARL data (no dependency on the dataset
 being generated).
@@ -56,5 +56,7 @@ def test_find_sphere_slice_is_zero_when_all_empty():
 
 if __name__ == "__main__":
     test_find_sphere_slice_picks_max_coverage_z()
+    test_find_sphere_slice_is_zero_when_all_empty()
+    print("All find_sphere_slice() checks passed.")()
     test_find_sphere_slice_is_zero_when_all_empty()
     print("All find_sphere_slice() checks passed.")
