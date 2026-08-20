@@ -12,8 +12,9 @@ phantomgen dict), so the central slice of the volume would likely miss
 them. Instead this script finds the z-slice that maximises total sphere
 mask coverage (summed across all 6 EARL_sphere_*mm.npy masks) and uses
 that as the cross-section. This is the "cross section over the spheres"
-version of central_slice() in visualize_predictions.py.-----have a test for this 
-in tests/test_visualize_earl_slice_selection.py, which uses tiny
+version of central_slice() in visualize_predictions.py. See
+tests/test_visualize_earl_slice_selection.py for an independent check of
+this slice-selection logic against small synthetic masks.
 
 One representative seed is used for display (default 42) -- averaging
 across seeds would blur the noise texture that's actually relevant to
@@ -291,5 +292,7 @@ def main():
         print(f"Saved {out_path}")
 
 
+if __name__ == "__main__":
+    main()
 if __name__ == "__main__":
     main()
